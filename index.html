@@ -414,6 +414,14 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
       <div id="futureInjekcijaNote" style="font-size:.78rem;color:var(--warn);margin-top:4px;display:none">⚠ Datum je v prihodnosti — termin bo dodan, naslednji se nastavi šele po potrditvi.</div>
     </div>
     <div class="form-group"><label>Datum zadnje kontrole <span style="color:var(--text2);font-weight:400">(neobvezno)</span></label><input type="date" id="pZadnjaKontrola" style="width:100%"></div>
+    <div class="form-group">
+      <label>Interval kontrole PSA</label>
+      <select id="pPsaInterval" style="width:100%">
+        <option value="3">Vsake 3 mesece</option>
+        <option value="6" selected>Vsakih 6 mesecev</option>
+        <option value="12">Enkrat letno</option>
+      </select>
+    </div>
     <div class="form-group"><label>Opombe</label><input type="text" id="pOpombe" style="width:100%" placeholder="Alergije, posebnosti..."></div>
     <div class="modal-actions">
       <button class="btn btn-danger btn-sm" id="btnBrisiPacienta" onclick="deletePacient()" style="display:none;margin-right:auto">🗑 Briši</button>
@@ -438,6 +446,48 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
       <button class="btn btn-danger btn-sm" id="btnBrisiZdravilo" onclick="deleteZdravilo()" style="display:none;margin-right:auto">🗑 Briši</button>
       <button class="btn btn-secondary" onclick="closeModal('modalZdravilo')">Prekliči</button>
       <button class="btn btn-primary" onclick="saveZdravilo()">Shrani</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: PSA VNOS (po injekciji) -->
+<div class="modal-overlay" id="modalPsa">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-title">🩸 PSA meritev</div>
+    <div id="psaModalInfo" style="background:var(--surface2);padding:12px;border-radius:var(--radius-sm);margin-bottom:14px;font-size:.9rem"></div>
+    <div class="form-group">
+      <label>Vrednost PSA (ng/mL)</label>
+      <input type="number" step="0.01" min="0" id="psaVrednost" style="width:100%" placeholder="npr. 0.45" inputmode="decimal" oninput="psaUpdatePreview()">
+    </div>
+    <div class="form-group">
+      <label>Datum odvzema</label>
+      <input type="date" id="psaDatum" style="width:100%" onchange="psaUpdatePreview()">
+    </div>
+    <div id="psaPreview" style="font-size:.84rem;margin-bottom:8px"></div>
+    <div class="modal-actions" style="flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="psaSkip()" style="margin-right:auto">⏭ Preloži na naslednjič</button>
+      <button class="btn btn-secondary" onclick="closeModal('modalPsa')">Zapri</button>
+      <button class="btn btn-primary" onclick="psaSave()">💾 Shrani PSA</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: PSA ZGODOVINA / GRAF -->
+<div class="modal-overlay" id="modalPsaHistory">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-title" id="psaHistoryTitle">🩸 PSA zgodovina</div>
+    <div id="psaHistoryChart" style="margin-bottom:16px"></div>
+    <div id="psaHistoryStats" style="margin-bottom:14px"></div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <input type="number" step="0.01" min="0" id="psaHistVrednost" placeholder="PSA ng/mL" style="flex:1" inputmode="decimal">
+      <input type="date" id="psaHistDatum" style="flex:1">
+      <button class="btn btn-primary btn-sm" onclick="psaAddManual()">+ Dodaj</button>
+    </div>
+    <div class="table-wrap" style="max-height:200px;overflow-y:auto">
+      <table><thead><tr><th>Datum</th><th>PSA</th><th>Sprememba</th><th></th></tr></thead><tbody id="psaHistoryTable"></tbody></table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modalPsaHistory')">Zapri</button>
     </div>
   </div>
 </div>
@@ -604,6 +654,154 @@ function newId(prefix){return prefix+'_'+Date.now().toString(36)+'_'+Math.random
 // Pacient/termin lookup s pravilno tip-konverzijo
 function getP(id){return data.pacienti.find(x=>x.id===Number(id));}
 function getT(id){return data.termini.find(x=>x.id===String(id));}
+
+// ============================================================
+// PSA MODUL — meritve, trend, doubling time, relaps po smernicah
+// ============================================================
+// Struktura: p.psa = [{datum:'YYYY-MM-DD', vrednost:1.2}, ...]
+// p.psaIntervalMeseci = 3 / 6 (kako pogosto kontrola PSA)
+// p.psaNadir = samodejno najnižja vrednost (za Phoenix kriterij)
+
+function psaList(p){
+  return (p.psa||[]).slice().sort((a,b)=>a.datum.localeCompare(b.datum));
+}
+function psaZadnja(p){
+  const l=psaList(p);
+  return l.length?l[l.length-1]:null;
+}
+function psaNadir(p){
+  const l=psaList(p);
+  if(!l.length)return null;
+  return l.reduce((min,m)=>m.vrednost<min.vrednost?m:min,l[0]);
+}
+
+// PSA doubling time (mesecev) — linearna regresija ln(PSA) proti času
+// Po PCWG3: rabi >=3 meritve, interval >=8 tednov. Vrne null sicer ali če PSA pada.
+function psaDoublingTime(p){
+  const l=psaList(p).filter(m=>m.vrednost>0);
+  if(l.length<2)return null;
+  const t0=new Date(l[0].datum).getTime();
+  const xs=l.map(m=>(new Date(m.datum).getTime()-t0)/86400000/30.44); // meseci
+  const ys=l.map(m=>Math.log(m.vrednost));
+  const spanMon=xs[xs.length-1]-xs[0];
+  if(spanMon<2)return null; // <8 tednov
+  const n=xs.length;
+  const mx=xs.reduce((a,b)=>a+b,0)/n, my=ys.reduce((a,b)=>a+b,0)/n;
+  let num=0,den=0;
+  for(let i=0;i<n;i++){num+=(xs[i]-mx)*(ys[i]-my);den+=(xs[i]-mx)**2;}
+  if(den===0)return null;
+  const slope=num/den; // ln-enot na mesec
+  if(slope<=0)return null; // PSA stabilen ali pada → ni podvojitve
+  return 0.693/slope; // meseci do podvojitve
+}
+
+// Trend: 'up' / 'down' / 'stable' / null — primerja zadnji dve
+function psaTrend(p){
+  const l=psaList(p);
+  if(l.length<2)return null;
+  const a=l[l.length-2].vrednost, b=l[l.length-1].vrednost;
+  if(b>a*1.05)return 'up';
+  if(b<a*0.95)return 'down';
+  return 'stable';
+}
+
+// Ocena relapsa po smernicah. Vrne {level, razlogi[], dt}
+// level: 'ok' | 'pozor' | 'alarm'
+function psaRelaps(p){
+  const l=psaList(p);
+  const out={level:'ok',razlogi:[],dt:null};
+  if(l.length<2)return out;
+  const zadnja=l[l.length-1];
+  const nadir=psaNadir(p);
+  const dt=psaDoublingTime(p);
+  out.dt=dt;
+
+  // Phoenix kriterij (po obsevanju): nadir + 2 ng/mL
+  if(nadir&&zadnja.vrednost>=nadir.vrednost+2){
+    out.level='alarm';
+    out.razlogi.push(`PSA ${zadnja.vrednost} je ≥ nadir (${nadir.vrednost}) + 2 — Phoenix kriterij za biokemični relaps`);
+  }
+
+  // Podvojitev v zadnjih ~6 mesecih (uporabnikova zahteva)
+  const pred6m=fmtISO(addDays(new Date(zadnja.datum),-190));
+  const prej=l.filter(m=>m.datum>=pred6m&&m.datum<zadnja.datum);
+  if(prej.length){
+    const najnizjaPrej=prej.reduce((mn,m)=>m.vrednost<mn.vrednost?m:mn,prej[0]);
+    if(najnizjaPrej.vrednost>0){
+      const ratio=zadnja.vrednost/najnizjaPrej.vrednost;
+      if(ratio>=2){
+        out.level='alarm';
+        out.razlogi.push(`PSA se je v 6 mes. več kot podvojil (${najnizjaPrej.vrednost} → ${zadnja.vrednost})`);
+      }else if(ratio>=1.7){
+        if(out.level!=='alarm')out.level='pozor';
+        out.razlogi.push(`PSA se približuje podvojitvi v 6 mes. (${najnizjaPrej.vrednost} → ${zadnja.vrednost}, ×${ratio.toFixed(1)})`);
+      }
+    }
+  }
+
+  // Doubling time pragovi (PSADT)
+  if(dt!==null){
+    if(dt<3){
+      out.level='alarm';
+      out.razlogi.push(`Čas podvojitve PSA ${dt.toFixed(1)} mes. (<3) — zelo visoko tveganje`);
+    }else if(dt<=10){
+      if(out.level!=='alarm')out.level='pozor';
+      out.razlogi.push(`Čas podvojitve PSA ${dt.toFixed(1)} mes. (≤10) — pomenljiv porast`);
+    }
+  }
+
+  // Trije zaporedni dvigi
+  if(l.length>=4){
+    const last4=l.slice(-4);
+    if(last4[1].vrednost>last4[0].vrednost&&last4[2].vrednost>last4[1].vrednost&&last4[3].vrednost>last4[2].vrednost){
+      if(out.level==='ok')out.level='pozor';
+      out.razlogi.push('Trije zaporedni dvigi PSA');
+    }
+  }
+  return out;
+}
+
+// Datum naslednje PSA kontrole (zadnja meritev + interval)
+function psaNaslednjaKontrola(p){
+  const z=psaZadnja(p);
+  if(!z||!p.psaIntervalMeseci)return null;
+  return fmtISO(addDays(new Date(z.datum),p.psaIntervalMeseci*30));
+}
+
+// Mini SVG sparkline iz PSA meritev. rdeč če trend up.
+function psaSparkline(p,w,h){
+  w=w||90;h=h||28;
+  const l=psaList(p);
+  if(l.length<2){
+    return `<svg width="${w}" height="${h}" style="vertical-align:middle"><text x="2" y="${h/2+4}" font-size="9" fill="#999">${l.length?l[0].vrednost:'—'}</text></svg>`;
+  }
+  const rel=psaRelaps(p);
+  const trend=psaTrend(p);
+  const color=rel.level==='alarm'?'#c0392b':rel.level==='pozor'?'#e67e22':trend==='up'?'#c0392b':trend==='down'?'#27ae60':'#7f8c8d';
+  const vals=l.map(m=>m.vrednost);
+  const min=Math.min(...vals),max=Math.max(...vals);
+  const range=max-min||1;
+  const pad=3;
+  const pts=l.map((m,i)=>{
+    const x=pad+(w-2*pad)*i/(l.length-1);
+    const y=h-pad-(h-2*pad)*(m.vrednost-min)/range;
+    return [x,y];
+  });
+  const path=pts.map((pt,i)=>(i?'L':'M')+pt[0].toFixed(1)+','+pt[1].toFixed(1)).join(' ');
+  const last=pts[pts.length-1];
+  const dotR=rel.level==='alarm'?3:2;
+  return `<svg width="${w}" height="${h}" style="vertical-align:middle" title="PSA trend">
+    <path d="${path}" fill="none" stroke="${color}" stroke-width="1.5"/>
+    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="${dotR}" fill="${color}"/>
+    ${rel.level==='alarm'?`<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="${dotR+2}" fill="none" stroke="${color}" stroke-width="1" opacity="0.5"/>`:''}
+  </svg>`;
+}
+function psaBadge(p){
+  const rel=psaRelaps(p);
+  if(rel.level==='alarm')return '<span style="color:#c0392b;font-weight:700">⚠ relaps?</span>';
+  if(rel.level==='pozor')return '<span style="color:#e67e22;font-weight:600">↑ pozor</span>';
+  return '';
+}
 
 // ============================================================
 // AUTO BACKUP — File System Access API + IndexedDB za handle
@@ -864,7 +1062,7 @@ async function checkRestoreOnEmpty(){
       data.zdravila=nl;
     }
     if(!data.zaloge)data.zaloge={};if(!data.zalogeLog)data.zalogeLog=[];
-    data.pacienti.forEach(p=>{if(p.izbrisan===undefined)p.izbrisan=false;if(p.telefon===undefined)p.telefon='';if(typeof p.id!=='number')p.id=Number(p.id)||data.nextId++;});
+    data.pacienti.forEach(p=>{if(p.izbrisan===undefined)p.izbrisan=false;if(p.telefon===undefined)p.telefon='';if(!Array.isArray(p.psa))p.psa=[];if(p.psaIntervalMeseci===undefined)p.psaIntervalMeseci=6;if(typeof p.id!=='number')p.id=Number(p.id)||data.nextId++;});
     save();
     renderDashboard();
     showToast('Podatki obnovljeni iz backupa ✓','success');
@@ -941,6 +1139,8 @@ data.zdravila.forEach(z=>{
 data.pacienti.forEach(p=>{
   if(p.izbrisan===undefined)p.izbrisan=false;
   if(p.telefon===undefined)p.telefon='';
+  if(!Array.isArray(p.psa))p.psa=[];
+  if(p.psaIntervalMeseci===undefined)p.psaIntervalMeseci=6;
   if(typeof p.id!=='number')p.id=Number(p.id)||data.nextId++;
   const parsed=parseMed(p.zdravilo,p.odmerek);
   p.zdravilo=parsed.ime;
@@ -1173,19 +1373,30 @@ function renderDashboard(){
     danesCard.style.display='none';
   }
 
-  // === CLEANUP ALERT (zamude + brez termina) ===
+  // === CLEANUP ALERT (zamude + brez termina + PSA relaps) ===
   const zamCnt=zamujeni.length;
   const brezCnt=getBrezTermina().length;
+  const psaAlarm=data.pacienti.filter(p=>!p.izbrisan&&p.status==='aktiven'&&psaRelaps(p).level==='alarm');
   const ca=document.getElementById('cleanupAlert');
+  let alertHtml='';
+  if(psaAlarm.length>0){
+    alertHtml+=`<div style="background:#7c1d1d18;border:1px solid #c0392b;border-radius:var(--radius);padding:12px 16px;margin-bottom:12px">
+      <div style="font-size:.9rem;margin-bottom:6px"><strong style="color:#c0392b">🩸 Možen PSA relaps — preveri nujno:</strong></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${psaAlarm.slice(0,8).map(p=>`<button class="btn btn-secondary btn-sm" onclick="openPsaHistory('${p.id}')" style="border-color:#c0392b;color:#c0392b">${p.priimek} ${p.ime} ${psaSparkline(p,50,20)}</button>`).join('')}
+        ${psaAlarm.length>8?`<span style="align-self:center;color:var(--text2);font-size:.82rem">+${psaAlarm.length-8}</span>`:''}
+      </div></div>`;
+  }
   if(zamCnt+brezCnt>0){
-    ca.innerHTML=`<div style="background:#7c1d1d18;border:1px solid var(--danger);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+    alertHtml+=`<div style="background:#7c1d1d18;border:1px solid var(--danger);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
       <div style="font-size:.9rem"><strong style="color:var(--danger)">⚠ Potrebno urejanje:</strong>
         ${zamCnt>0?`<span style="margin-left:8px">${zamCnt} zamujenih terminov</span>`:''}
         ${brezCnt>0?`<span style="margin-left:8px;color:var(--danger);font-weight:700">${brezCnt} pacientov brez termina!</span>`:''}
       </div>
       <button class="btn btn-danger btn-sm" onclick="showPage('urejanje')">🧹 Uredi zdaj</button>
     </div>`;
-  }else{ca.innerHTML='';}
+  }
+  ca.innerHTML=alertHtml;
   updateUrejanjeBadge();
 
   // Kontrola opozorilo
@@ -1263,7 +1474,8 @@ function renderPacienti(){
         const brezKon=p.zadnjaKontrola&&(today-new Date(p.zadnjaKontrola))/86400000>183;
         const arhBadge=p.izbrisan?' <span class="badge-gray" style="margin-left:4px">📦 arhiv</span>':'';
         return`<tr${p.izbrisan?' style="opacity:.55"':''}>
-          <td><strong>${p.ime} ${p.priimek}</strong>${arhBadge}${p.telefon?`<br><a href="tel:${p.telefon.replace(/\s/g,'')}" style="font-size:.75rem;color:var(--info)">📞 ${p.telefon}</a>`:''}${p.opombe?`<br><span style="font-size:.75rem;color:var(--text2)">${p.opombe}</span>`:''}</td>
+          <td><div style="display:flex;align-items:center;gap:8px"><div><strong>${p.ime} ${p.priimek}</strong> ${psaBadge(p)}${arhBadge}${p.telefon?`<br><a href="tel:${p.telefon.replace(/\s/g,'')}" style="font-size:.75rem;color:var(--info)">📞 ${p.telefon}</a>`:''}${p.opombe?`<br><span style="font-size:.75rem;color:var(--text2)">${p.opombe}</span>`:''}</div>
+            <span style="cursor:pointer;margin-left:auto" onclick="openPsaHistory('${p.id}')" title="PSA zgodovina">${psaSparkline(p)}</span></div></td>
           <td><span style="font-family:monospace">${p.maticni||'—'}</span></td>
           <td>${p.zdravilo}<br><span style="font-size:.75rem;color:var(--text2)">${p.odmerek||''}mg</span></td>
           <td>${p.interval} dni</td>
@@ -1334,6 +1546,7 @@ function openAddPacient(){
   document.getElementById('pStatus').value='aktiven';
   document.getElementById('pZadnjaInjekcija').value=todayISO();
   document.getElementById('pZadnjaKontrola').value='';
+  document.getElementById('pPsaInterval').value=6;
   document.getElementById('novoZdraviloGroup').style.display='none';
   document.getElementById('futureInjekcijaNote').style.display='none';
   fillZKeySel('pZdraviloKey','','');
@@ -1354,6 +1567,7 @@ function openEditPacient(id){
   document.getElementById('pStatus').value=p.status||'aktiven';
   document.getElementById('pZadnjaInjekcija').value=p.zadnjaInjekcija||'';
   document.getElementById('pZadnjaKontrola').value=p.zadnjaKontrola||'';
+  document.getElementById('pPsaInterval').value=p.psaIntervalMeseci||6;
   document.getElementById('novoZdraviloGroup').style.display='none';
   document.getElementById('futureInjekcijaNote').style.display='none';
   fillZKeySel('pZdraviloKey',p.zdravilo,p.odmerek);
@@ -1408,6 +1622,7 @@ function savePacient(){
     status:document.getElementById('pStatus').value,
     zadnjaInjekcija,
     zadnjaKontrola:document.getElementById('pZadnjaKontrola').value||'',
+    psaIntervalMeseci:parseInt(document.getElementById('pPsaInterval').value)||6,
     opombe:document.getElementById('pOpombe').value.trim(),
   };
 
@@ -1422,6 +1637,7 @@ function savePacient(){
   }else{
     p.id=data.nextId++;
     p.izbrisan=false;
+    p.psa=[];
     data.pacienti.push(p);
     if(zadnjaInjekcija){
       if(isFuture){
@@ -1533,7 +1749,234 @@ function confirmInjekcija(){
   showToast(`✅ Potrjeno! Naslednji: ${ns?fmtDate(ns.datum):'—'}`, 'success');
   syncToSheets(`Injekcija: ${p.ime} ${p.priimek} ${datum}`);
   renderDashboard();
-  if(ns){const newT=data.termini.find(x=>x.datum===ns.datum&&x.pacientId===p.id&&x.status==='caka');if(newT)setTimeout(()=>printSlip(newT.id),400);}
+  // Shranim za PSA korak in print
+  const newT=ns?data.termini.find(x=>x.datum===ns.datum&&x.pacientId===p.id&&x.status==='caka'):null;
+  psaAfterInjekcija={pacientId:p.id, naslednjiTerminId:newT?newT.id:null};
+  // Ali je PSA kontrola "dolžna"? (zadnja meritev starejša od intervala)
+  openPsaModal(p, datum);
+}
+
+// ============================================================
+// PSA — vnos ob injekciji
+// ============================================================
+let psaAfterInjekcija=null; // {pacientId, naslednjiTerminId}
+let psaModalPacientId=null;
+function openPsaModal(p, injDatum){
+  psaModalPacientId=p.id;
+  const zadnja=psaZadnja(p);
+  const nasl=psaNaslednjaKontrola(p);
+  const dolzna=!zadnja||(nasl&&nasl<=injDatum);
+  let info=`<strong>${p.ime} ${p.priimek}</strong><br>`;
+  if(zadnja){
+    info+=`<span style="color:var(--text2)">Zadnji PSA: <strong>${zadnja.vrednost}</strong> (${fmtDate(zadnja.datum)})</span>`;
+    if(nasl)info+=`<br><span style="color:${dolzna?'var(--warn)':'var(--text2)'}">Naslednja kontrola predvidena: ${fmtDate(nasl)}${dolzna?' — zdaj je čas ⏰':''}</span>`;
+  }else{
+    info+='<span style="color:var(--text2)">Še ni vnesene nobene PSA meritve.</span>';
+  }
+  info+=`<br><span style="font-size:.8rem;color:var(--text2)">Interval kontrole: vsakih ${p.psaIntervalMeseci||6} mes.</span>`;
+  document.getElementById('psaModalInfo').innerHTML=info;
+  document.getElementById('psaVrednost').value='';
+  document.getElementById('psaDatum').value=injDatum||todayISO();
+  document.getElementById('psaPreview').innerHTML='';
+  openModal('modalPsa');
+  setTimeout(()=>document.getElementById('psaVrednost').focus(),60);
+}
+// Živ predogled relapsa med tipkanjem
+document.addEventListener('DOMContentLoaded',()=>{});
+function psaUpdatePreview(){
+  const p=getP(psaModalPacientId);
+  const v=parseFloat(document.getElementById('psaVrednost').value.replace(',','.'));
+  const el=document.getElementById('psaPreview');
+  if(!p||isNaN(v)||v<0){el.innerHTML='';return;}
+  // Simuliram dodano meritev
+  const dat=document.getElementById('psaDatum').value||todayISO();
+  const sim={...p,psa:[...psaList(p),{datum:dat,vrednost:v}]};
+  const rel=psaRelaps(sim);
+  if(rel.level==='alarm'){
+    el.innerHTML=`<div style="background:#7c1d1d18;border-left:3px solid #c0392b;padding:8px 10px;border-radius:4px;color:#c0392b">⚠ <strong>Opozorilo:</strong> ${rel.razlogi[0]}</div>`;
+  }else if(rel.level==='pozor'){
+    el.innerHTML=`<div style="background:#e67e2218;border-left:3px solid #e67e22;padding:8px 10px;border-radius:4px;color:#b5651d">↑ ${rel.razlogi[0]}</div>`;
+  }else{
+    el.innerHTML='<span style="color:var(--accent)">✓ Vrednost v pričakovanem območju</span>';
+  }
+}
+function psaSave(){
+  const p=getP(psaModalPacientId);
+  if(!p)return;
+  const v=parseFloat(document.getElementById('psaVrednost').value.replace(',','.'));
+  const dat=document.getElementById('psaDatum').value;
+  if(isNaN(v)||v<0){showToast('Vnesite veljavno PSA vrednost!','error');return;}
+  if(!dat){showToast('Vnesite datum odvzema!','error');return;}
+  if(!Array.isArray(p.psa))p.psa=[];
+  p.psa.push({datum:dat,vrednost:v});
+  p.zadnjaKontrola=dat;
+  save();
+  closeModal('modalPsa');
+  // Po shranjevanju preverim relaps in po potrebi naročim kontrolo + opozorim
+  const rel=psaRelaps(p);
+  finishPsaFlow(p, rel);
+}
+function psaSkip(){
+  // Preloži PSA na naslednjič — samo zapre, natisne listek z opomnikom za PSA
+  const p=getP(psaModalPacientId);
+  closeModal('modalPsa');
+  if(p)finishPsaFlow(p, null, true);
+}
+function finishPsaFlow(p, rel, skipped){
+  // Če relaps → ponudi takojšnjo kontrolo
+  if(rel&&rel.level==='alarm'){
+    const txt='⚠ OPOZORILO — možen biokemični relaps:\n\n'+rel.razlogi.map(r=>'• '+r).join('\n')+
+      (rel.dt!==null?`\n\nČas podvojitve PSA: ${rel.dt.toFixed(1)} mesecev.`:'')+
+      '\n\nNaj razpišem PREDČASNO kontrolo (v 14 dneh) in jo označim kot nujno?';
+    if(confirm(txt)){
+      const slot=getNextSlot(todayISO());
+      if(slot){
+        data.termini.push({id:newId('k'),pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum:slot.datum,ura:'',status:'caka',tip:'kontrola',opomba:'⚠ NUJNO — možen PSA relaps, preveri svež izvid',nujno:true});
+        save();
+        showToast('Nujna kontrola razpisana ✓','success');
+      }
+    }
+  }
+  // Natisni listek za naslednji termin (z morebitnim opozorilom za PSA)
+  if(psaAfterInjekcija&&psaAfterInjekcija.naslednjiTerminId){
+    const tid=psaAfterInjekcija.naslednjiTerminId;
+    setTimeout(()=>printSlip(tid),300);
+  }
+  psaAfterInjekcija=null;
+  if(document.getElementById('page-pacienti').classList.contains('active'))renderPacienti();
+  renderDashboard();
+}
+
+// ============================================================
+// PSA — zgodovina / graf / ročni vnos
+// ============================================================
+function openPsaHistory(pacientId){
+  psaModalPacientId=Number(pacientId);
+  const p=getP(pacientId);
+  if(!p)return;
+  document.getElementById('psaHistoryTitle').textContent=`🩸 PSA — ${p.ime} ${p.priimek}`;
+  document.getElementById('psaHistVrednost').value='';
+  document.getElementById('psaHistDatum').value=todayISO();
+  renderPsaHistory();
+  openModal('modalPsaHistory');
+}
+function renderPsaHistory(){
+  const p=getP(psaModalPacientId);
+  if(!p)return;
+  const l=psaList(p);
+  // Velik graf
+  document.getElementById('psaHistoryChart').innerHTML=psaBigChart(p,540,200);
+  // Statistika + smernice
+  const rel=psaRelaps(p);
+  const dt=rel.dt;
+  const nadir=psaNadir(p);
+  const nasl=psaNaslednjaKontrola(p);
+  let stats=`<div style="display:flex;gap:18px;flex-wrap:wrap;font-size:.86rem">`;
+  stats+=`<div>Meritev: <strong>${l.length}</strong></div>`;
+  if(nadir)stats+=`<div>Nadir: <strong>${nadir.vrednost}</strong> (${fmtDate(nadir.datum)})</div>`;
+  if(dt!==null)stats+=`<div>Čas podvojitve: <strong style="color:${dt<10?'#c0392b':'inherit'}">${dt.toFixed(1)} mes.</strong></div>`;
+  if(nasl)stats+=`<div>Naslednja kontrola: <strong>${fmtDate(nasl)}</strong></div>`;
+  stats+=`</div>`;
+  if(rel.level!=='ok'){
+    const col=rel.level==='alarm'?'#c0392b':'#e67e22';
+    const bg=rel.level==='alarm'?'#7c1d1d18':'#e67e2218';
+    stats+=`<div style="background:${bg};border-left:3px solid ${col};padding:10px 12px;border-radius:4px;margin-top:10px;font-size:.85rem">
+      <strong style="color:${col}">${rel.level==='alarm'?'⚠ Možen biokemični relaps':'↑ Spremljaj pozorno'}</strong>
+      <ul style="margin:6px 0 0;padding-left:18px;color:${col}">${rel.razlogi.map(r=>`<li>${r}</li>`).join('')}</ul>
+    </div>`;
+  }
+  document.getElementById('psaHistoryStats').innerHTML=stats;
+  // Tabela
+  const rl=l.slice().reverse();
+  document.getElementById('psaHistoryTable').innerHTML=rl.length?rl.map((m,ri)=>{
+    const idx=l.length-1-ri;
+    const prev=idx>0?l[idx-1]:null;
+    let chg='—';
+    if(prev){
+      const d=m.vrednost-prev.vrednost;
+      const pct=prev.vrednost>0?(d/prev.vrednost*100):0;
+      const col=d>0?'#c0392b':d<0?'#27ae60':'#7f8c8d';
+      chg=`<span style="color:${col}">${d>0?'+':''}${d.toFixed(2)} (${pct>0?'+':''}${pct.toFixed(0)}%)</span>`;
+    }
+    return`<tr><td>${fmtDate(m.datum)}</td><td><strong>${m.vrednost}</strong></td><td>${chg}</td>
+      <td><button class="btn btn-danger btn-sm" style="padding:1px 7px" onclick="psaDelete('${m.datum}',${m.vrednost})">✕</button></td></tr>`;
+  }).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:14px">Ni meritev</td></tr>';
+}
+function psaAddManual(){
+  const p=getP(psaModalPacientId);
+  if(!p)return;
+  const v=parseFloat(document.getElementById('psaHistVrednost').value.replace(',','.'));
+  const dat=document.getElementById('psaHistDatum').value;
+  if(isNaN(v)||v<0){showToast('Vnesite PSA vrednost!','error');return;}
+  if(!dat){showToast('Vnesite datum!','error');return;}
+  if(!Array.isArray(p.psa))p.psa=[];
+  p.psa.push({datum:dat,vrednost:v});
+  // posodobi zadnjo kontrolo, če je to najnovejša
+  const z=psaZadnja(p);
+  if(z&&z.datum===dat)p.zadnjaKontrola=dat;
+  save();
+  document.getElementById('psaHistVrednost').value='';
+  renderPsaHistory();
+  renderPacienti();
+  showToast('PSA dodan ✓','success');
+}
+function psaDelete(datum,vrednost){
+  const p=getP(psaModalPacientId);
+  if(!p)return;
+  if(!confirm(`Izbrisati meritev ${vrednost} z dne ${fmtDate(datum)}?`))return;
+  p.psa=p.psa.filter(m=>!(m.datum===datum&&m.vrednost===vrednost));
+  save();renderPsaHistory();renderPacienti();
+  showToast('Meritev izbrisana','error');
+}
+
+// Velik graf z osmi, nadir črto, barvanjem trenda
+function psaBigChart(p,w,h){
+  const l=psaList(p);
+  if(l.length<1)return '<p style="color:var(--text2);text-align:center;padding:30px">Ni meritev za prikaz</p>';
+  if(l.length<2)return `<p style="text-align:center;padding:20px">Ena meritev: <strong>${l[0].vrednost}</strong> ng/mL (${fmtDate(l[0].datum)})<br><span style="color:var(--text2);font-size:.85rem">Za graf trenda sta potrebni vsaj 2 meritvi.</span></p>`;
+  const padL=38,padR=14,padT=14,padB=28;
+  const vals=l.map(m=>m.vrednost);
+  let min=Math.min(...vals),max=Math.max(...vals);
+  const nadir=psaNadir(p);
+  // Razširim os malo
+  const span=max-min||1;min=Math.max(0,min-span*0.1);max=max+span*0.15;
+  const t0=new Date(l[0].datum).getTime(),t1=new Date(l[l.length-1].datum).getTime();
+  const tspan=t1-t0||1;
+  const X=t=>padL+(w-padL-padR)*(new Date(t).getTime()-t0)/tspan;
+  const Y=v=>h-padB-(h-padT-padB)*(v-min)/(max-min);
+  const rel=psaRelaps(p);
+  const lineCol=rel.level==='alarm'?'#c0392b':rel.level==='pozor'?'#e67e22':'#2d5a3d';
+  const pts=l.map(m=>[X(m.datum),Y(m.vrednost)]);
+  const path=pts.map((pt,i)=>(i?'L':'M')+pt[0].toFixed(1)+','+pt[1].toFixed(1)).join(' ');
+  // Phoenix prag (nadir+2)
+  const phoenixY=nadir?Y(nadir.vrednost+2):null;
+  let svg=`<svg width="${w}" height="${h}" style="max-width:100%;background:var(--surface2);border-radius:8px">`;
+  // Y osi oznake
+  for(let i=0;i<=4;i++){
+    const v=min+(max-min)*i/4;
+    const y=Y(v);
+    svg+=`<line x1="${padL}" y1="${y}" x2="${w-padR}" y2="${y}" stroke="#0001" stroke-width="1"/>`;
+    svg+=`<text x="${padL-4}" y="${y+3}" font-size="9" fill="#999" text-anchor="end">${v.toFixed(1)}</text>`;
+  }
+  // Phoenix prag črta
+  if(phoenixY!==null&&phoenixY>padT&&phoenixY<h-padB){
+    svg+=`<line x1="${padL}" y1="${phoenixY}" x2="${w-padR}" y2="${phoenixY}" stroke="#c0392b" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"/>`;
+    svg+=`<text x="${w-padR}" y="${phoenixY-3}" font-size="8" fill="#c0392b" text-anchor="end">relaps prag (nadir+2)</text>`;
+  }
+  // Linija
+  svg+=`<path d="${path}" fill="none" stroke="${lineCol}" stroke-width="2"/>`;
+  // Točke + datumi (prva, zadnja, vmes vsako 2.)
+  pts.forEach((pt,i)=>{
+    const isEnd=i===0||i===pts.length-1;
+    svg+=`<circle cx="${pt[0].toFixed(1)}" cy="${pt[1].toFixed(1)}" r="${isEnd?3.5:2.5}" fill="${lineCol}"/>`;
+    if(isEnd||i%Math.ceil(pts.length/5)===0){
+      const d=new Date(l[i].datum);
+      svg+=`<text x="${pt[0].toFixed(1)}" y="${h-padB+12}" font-size="8" fill="#999" text-anchor="middle">${d.getDate()}.${d.getMonth()+1}.${String(d.getFullYear()).slice(2)}</text>`;
+      svg+=`<text x="${pt[0].toFixed(1)}" y="${(pt[1]-6).toFixed(1)}" font-size="8" fill="${lineCol}" text-anchor="middle" font-weight="bold">${l[i].vrednost}</text>`;
+    }
+  });
+  svg+=`</svg>`;
+  return svg;
 }
 
 // ============================================================
@@ -1708,6 +2151,17 @@ function printSlip(terminId){
   const t=data.termini.find(x=>x.id===terminId);
   const p=data.pacienti.find(x=>x.id===t.pacientId);
   const ord=data.settings.ordinacija||'Ordinacija';
+  // Ali bo do tega termina potrebna sveža PSA kontrola?
+  let psaOpomnik='';
+  if(p){
+    const nasl=psaNaslednjaKontrola(p);
+    if(!psaZadnja(p)||(nasl&&nasl<=t.datum)){
+      psaOpomnik=`<div style="margin-top:14px;padding:10px 14px;border:2px solid #c0392b;border-radius:6px;background:#fdeaea">
+        <strong style="color:#c0392b">🩸 PROSIMO: ob naslednjem obisku prinesite SVEŽ izvid PSA</strong>
+        ${nasl?`<br><span style="font-size:.82rem;color:#555">Predvidena kontrola: ${fmtDate(nasl)}</span>`:''}
+      </div>`;
+    }
+  }
   document.getElementById('printSlipContent').innerHTML=`<div style="font-family:Georgia,serif;padding:10px">
     <h2 style="font-size:1.1rem;margin-bottom:2px">${ord}</h2>
     <h3 style="font-size:1rem;color:#555;margin-bottom:12px">NAROČILNICA — DEPO INJEKCIJA</h3><hr style="margin-bottom:14px">
@@ -1719,7 +2173,9 @@ function printSlip(terminId){
       <tr><td style="padding:5px 0;color:#666">Datum:</td><td><strong>${fmtDate(t.datum)}</strong></td></tr>
       <tr><td style="padding:5px 0;color:#666">Ura:</td><td><strong>${t.ura||'—'}</strong></td></tr>
       ${t.opomba?`<tr><td style="padding:5px 0;color:#666">Opomba:</td><td>${t.opomba}</td></tr>`:''}
-    </table><hr style="margin-top:20px">
+    </table>
+    ${psaOpomnik}
+    <hr style="margin-top:20px">
     <p style="font-size:.75rem;color:#aaa;margin-top:8px">Natisnjeno: ${fmtDate(new Date())}</p></div>`;
   openModal('modalPrint');
 }
@@ -2239,6 +2695,8 @@ function importData(e){
     data.pacienti.forEach(p=>{
       if(p.izbrisan===undefined)p.izbrisan=false;
       if(p.telefon===undefined)p.telefon='';
+      if(!Array.isArray(p.psa))p.psa=[];
+      if(p.psaIntervalMeseci===undefined)p.psaIntervalMeseci=6;
       if(typeof p.id!=='number')p.id=Number(p.id)||data.nextId++;
       const parsed=parseMed(p.zdravilo,p.odmerek);
       p.zdravilo=parsed.ime;
@@ -2274,7 +2732,7 @@ function loadDemo(){
     {ime:'Nina',priimek:'Zupan',maticni:'3456789',zdravilo:'Abilify Maintena',odmerek:'300',interval:14,zadnjaInjekcija:fmtISO(addDays(d,-5)),zadnjaKontrola:''},
   ];
   demos.forEach(p=>{
-    p.id=data.nextId++;p.status='aktiven';p.opombe='';p.izbrisan=false;
+    p.id=data.nextId++;p.status='aktiven';p.opombe='';p.izbrisan=false;p.psa=[];p.psaIntervalMeseci=6;
     data.pacienti.push(p);
     const zk=zalogeKey(p.zdravilo,p.odmerek);
     if(data.zaloge[zk]===undefined)data.zaloge[zk]=Math.floor(Math.random()*8)+2;
@@ -2501,7 +2959,7 @@ document.addEventListener('keydown',e=>{
 // ============================================================
 // PWA — verzija, service worker, samodejne posodobitve
 // ============================================================
-const APP_VERSION='v4i';
+const APP_VERSION='v4j';
 (function(){
   // Prikaz verzije v glavi
   const h=document.querySelector('.header-title')||document.querySelector('header');
