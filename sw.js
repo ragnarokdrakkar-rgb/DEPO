@@ -1,6 +1,6 @@
 // Service Worker — Depo Injekcije
-// Ob vsaki novi verziji aplikacije povečaj VERSION (npr. v4k-2, v4k-3 ...)
-const VERSION = 'v4l-2';
+// Ob vsaki novi verziji aplikacije povečaj VERSION (npr. v4m-2, v4m-3 ...)
+const VERSION = 'v4m-1';
 const CACHE = 'depo-' + VERSION;
 const ASSETS = [
   './',
@@ -25,6 +25,16 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
+
+  // KLJUČNO: cachiramo SAMO lastne datoteke z istega izvora in samo GET.
+  // Vse zunanje zahteve (Google Apps Script, ipd.) in vse ne-GET (POST) gredo
+  // naravnost na mrežo, brez vmešavanja service workerja.
+  const sameOrigin = url.origin === self.location.origin;
+  if (e.request.method !== 'GET' || !sameOrigin) {
+    return; // pusti brskalniku, da normalno opravi zahtevo
+  }
+
+  // HTML: network-first (sveža verzija, ko je internet)
   if (e.request.mode === 'navigate' || url.pathname.endsWith('index.html')) {
     e.respondWith(
       fetch(e.request).then(res => {
@@ -35,10 +45,15 @@ self.addEventListener('fetch', e => {
     );
     return;
   }
+
+  // Ostale lastne GET datoteke: cache-first
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request).then(res => {
-      const copy = res.clone();
-      caches.open(CACHE).then(c => c.put(e.request, copy));
+      // shranimo samo uspešne, osnovne (same-origin) odgovore
+      if (res && res.status === 200 && res.type === 'basic') {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy));
+      }
       return res;
     }))
   );
