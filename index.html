@@ -352,6 +352,7 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" onclick="cloudForcePull()">⬇ Prenesi iz oblaka</button>
       <button class="btn btn-secondary btn-sm" onclick="cloudForcePush()">⬆ Pošlji v oblak</button>
+      <button class="btn btn-secondary btn-sm" onclick="cloudDiagnostika()" style="border-color:var(--info);color:var(--info)">🔍 Diagnostika</button>
     </div>
     <p style="font-size:.78rem;color:var(--text2);margin-top:10px">
       <strong>Pravilo:</strong> delaj v eni ambulanti naenkrat. Ob prihodu v drugo počakaj, da se naloži sveža verzija (ali klikni "Prenesi iz oblaka").
@@ -1425,10 +1426,11 @@ let _cloudBusy=false;
 
 async function cloudPush(reason=''){
   const url=data.settings.sheetsUrl;
-  if(!url)return;
-  if(_cloudBusy)return;
+  if(!url)return false;
+  if(_cloudBusy)return false;
   _cloudBusy=true;
   setSyncStatus('syncing','Shranjujem v oblak...');
+  let success=false;
   try{
     const res=await fetch(url,{
       method:'POST',
@@ -1440,14 +1442,16 @@ async function cloudPush(reason=''){
       data.settings.lastCloudSync=j.updatedAt||new Date().toISOString();
       try{localStorage.setItem('depo_v4',JSON.stringify(data));}catch(e){}
       setSyncStatus('ok','V oblaku ✓ '+new Date().toLocaleTimeString('sl'));
+      success=true;
     }else{
       setSyncStatus('error','Napaka: '+(j.error||'?'));
     }
   }catch(e){
-    setSyncStatus('error','Ni povezave z oblakom');
+    setSyncStatus('error','Ni povezave: '+e.message);
   }finally{
     _cloudBusy=false;
   }
+  return success;
 }
 
 // Debounced push — pokliče save() ob vsaki spremembi
@@ -1557,8 +1561,56 @@ async function cloudForcePull(){
 // Ročni gumb: pošlji v oblak (prepiše oblak)
 async function cloudForcePush(){
   if(!data.settings.sheetsUrl){showToast('Najprej nastavi URL!','error');return;}
-  await cloudPush('manual');
-  showToast('Poslano v oblak ✓','success');
+  const ok=await cloudPush('manual');
+  // cloudPush vrne true/false glede na dejanski uspeh
+  if(ok)showToast('Poslano v oblak ✓','success');
+  else showToast('Pošiljanje NI uspelo — glej diagnostiko','error');
+}
+
+// DIAGNOSTIKA: pošlje testni zapis in pokaže SUROV odgovor strežnika na zaslonu
+async function cloudDiagnostika(){
+  const url=data.settings.sheetsUrl;
+  if(!url){alert('Najprej vnesi in shrani URL!');return;}
+  const box=document.getElementById('cloudSyncStatus');
+  const log=(m)=>{if(box)box.innerHTML='<pre style="white-space:pre-wrap;font-size:.72rem;margin:0">'+m+'</pre>';};
+  log('1/3 Pošiljam testni zapis...');
+  let report='=== DIAGNOSTIKA ===\n';
+  // 1) POST save z malim testnim zapisom
+  try{
+    const testData={pacienti:[{id:999,ime:'DIAG',priimek:'TEST',psa:[]}],termini:[],zaloge:{},zalogeLog:[],zdravila:[],nextId:1000,settings:{}};
+    const res=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'save',payload:JSON.stringify(testData)})
+    });
+    report+='POST status: '+res.status+' '+res.statusText+'\n';
+    report+='POST type: '+res.type+'\n';
+    const txt=await res.text();
+    report+='POST odgovor:\n'+txt.slice(0,400)+'\n\n';
+  }catch(e){
+    report+='POST NAPAKA: '+e.name+' — '+e.message+'\n\n';
+  }
+  log(report+'2/3 Berem nazaj...');
+  // 2) GET load — preverim, ali je testni zapis prišel v Sheet
+  try{
+    const res2=await fetch(url+'?action=load',{method:'GET'});
+    const txt2=await res2.text();
+    report+='LOAD status: '+res2.status+'\n';
+    let parsed;try{parsed=JSON.parse(txt2);}catch(e){parsed=null;}
+    if(parsed&&parsed.data){
+      const d=JSON.parse(parsed.data);
+      const ima=d.pacienti&&d.pacienti.some(p=>p.ime==='DIAG');
+      report+='V oblaku najdenih pacientov: '+(d.pacienti?d.pacienti.length:0)+'\n';
+      report+=ima?'✅ TESTNI ZAPIS JE PRIŠEL V OBLAK!\n':'⚠ Testni zapis NI v oblaku\n';
+    }else{
+      report+='LOAD: data je prazen (null)\n';
+      report+='Surov:\n'+txt2.slice(0,300)+'\n';
+    }
+  }catch(e){
+    report+='LOAD NAPAKA: '+e.name+' — '+e.message+'\n';
+  }
+  report+='\n3/3 Končano. Slikaj to in pošlji.';
+  log(report);
 }
 
 // ============================================================
@@ -3228,7 +3280,7 @@ document.addEventListener('keydown',e=>{
 // ============================================================
 // PWA — verzija, service worker, samodejne posodobitve
 // ============================================================
-const APP_VERSION='v4m';
+const APP_VERSION='v4n';
 (function(){
   // Prikaz verzije v glavi
   const h=document.querySelector('.header-title')||document.querySelector('header');
