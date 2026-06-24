@@ -340,14 +340,22 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
     </div>
   </div>
   <div class="card">
-    <div class="card-title">🌐 Google Sheets Sync</div>
-    <p style="font-size:.88rem;color:var(--text2);margin-bottom:16px">Vpiši URL tvojega Google Apps Script Web App. Podatki se shranjujejo ob vsaki potrditvi injekcije in vsako uro.</p>
-    <div class="form-group"><label>Apps Script Web App URL</label><input type="text" id="setSheetsUrl" style="width:100%" placeholder="https://script.google.com/macros/s/..."></div>
-    <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
+    <div class="card-title">☁️ Sinhronizacija (Google Sheets)</div>
+    <p style="font-size:.88rem;color:var(--text2);margin-bottom:12px">Podatki se shranjujejo v oblak ob vsaki spremembi. Obe ambulanti z <strong>istim URL-jem</strong> delita iste podatke.</p>
+    <div class="form-group"><label>Apps Script Web App URL</label><input type="text" id="setSheetsUrl" style="width:100%" placeholder="https://script.google.com/macros/s/.../exec"></div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap">
       <button class="btn btn-primary" onclick="saveSheetsUrl()">Shrani URL</button>
       <button class="btn btn-secondary" onclick="testSync()">Testiraj</button>
       <span id="syncTestResult" style="font-size:.85rem"></span>
     </div>
+    <div id="cloudSyncStatus" style="background:var(--surface2);border-radius:var(--radius-sm);padding:10px 14px;margin-top:12px;font-size:.84rem"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="cloudForcePull()">⬇ Prenesi iz oblaka</button>
+      <button class="btn btn-secondary btn-sm" onclick="cloudForcePush()">⬆ Pošlji v oblak</button>
+    </div>
+    <p style="font-size:.78rem;color:var(--text2);margin-top:10px">
+      <strong>Pravilo:</strong> delaj v eni ambulanti naenkrat. Ob prihodu v drugo počakaj, da se naloži sveža verzija (ali klikni "Prenesi iz oblaka").
+    </p>
   </div>
   <div class="card">
     <div class="card-title">💾 Varnostno shranjevanje podatkov</div>
@@ -1207,6 +1215,7 @@ let data=JSON.parse(localStorage.getItem('depo_v4')||'null')||{
 };
 if(!data.settings)data.settings={ordinacija:'',maxPacientov:5,start:'09:00',end:'11:00',sheetsUrl:''};
 if(!data.settings.sheetsUrl)data.settings.sheetsUrl='';
+if(data.settings.lastCloudSync===undefined)data.settings.lastCloudSync='';
 if(data.settings.autoBackupEnabled===undefined)data.settings.autoBackupEnabled=false;
 if(data.settings.autoBackupMode===undefined)data.settings.autoBackupMode='';
 if(data.settings.lastAutoBackup===undefined)data.settings.lastAutoBackup='';
@@ -1319,6 +1328,8 @@ function save(){
   }
   // Samodejni backup v izbrano mapo ob vsaki spremembi (z zamikom, da ne piše ob vsakem znaku)
   scheduleAutoSaveToDisk();
+  // Samodejni push v oblak (Google Sheets), če je nastavljen
+  scheduleCloudPush();
 }
 // Debounced samodejno shranjevanje na disk (5 sekund po zadnji spremembi)
 let _autoSaveTimer=null;
@@ -1402,39 +1413,152 @@ function calcNext(zadnja,interval){return getNextSlot(fmtISO(addDays(new Date(za
 // GOOGLE SHEETS SYNC
 // ============================================================
 function setSyncStatus(state,text){
-  document.getElementById('syncDot').className='sync-dot '+state;
-  document.getElementById('syncText').textContent=text;
+  const d=document.getElementById('syncDot');const t=document.getElementById('syncText');
+  if(d)d.className='sync-dot '+state;
+  if(t)t.textContent=text;
 }
-async function syncToSheets(reason=''){
+
+// Cloud sync prek Google Apps Script. Pošiljamo kot text/plain, da se izognemo
+// CORS preflight (Apps Script vseeno prebere prek e.postData.contents).
+let _cloudPushTimer=null;
+let _cloudBusy=false;
+
+async function cloudPush(reason=''){
   const url=data.settings.sheetsUrl;
-  if(!url){setSyncStatus('','Sheets ni nastavljen');return;}
-  setSyncStatus('syncing','Shranjujem...');
+  if(!url)return;
+  if(_cloudBusy)return;
+  _cloudBusy=true;
+  setSyncStatus('syncing','Shranjujem v oblak...');
   try{
-    await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'sync',timestamp:new Date().toISOString(),reason,
-        pacienti:data.pacienti,termini:data.termini.slice(-500),
-        zaloge:data.zaloge,zalogeLog:data.zalogeLog.slice(-200)})});
-    setSyncStatus('ok','Shranjeno '+new Date().toLocaleTimeString('sl'));
-  }catch(e){setSyncStatus('error','Napaka pri sync');}
+    const res=await fetch(url+'?action=save',{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify(data)
+    });
+    const j=await res.json();
+    if(j.ok){
+      data.settings.lastCloudSync=j.updatedAt||new Date().toISOString();
+      try{localStorage.setItem('depo_v4',JSON.stringify(data));}catch(e){}
+      setSyncStatus('ok','V oblaku ✓ '+new Date().toLocaleTimeString('sl'));
+    }else{
+      setSyncStatus('error','Napaka: '+(j.error||'?'));
+    }
+  }catch(e){
+    setSyncStatus('error','Ni povezave z oblakom');
+  }finally{
+    _cloudBusy=false;
+  }
 }
-function startAutoSync(){
+
+// Debounced push — pokliče save() ob vsaki spremembi
+function scheduleCloudPush(){
   if(!data.settings.sheetsUrl)return;
-  syncToSheets('start');
-  setInterval(()=>syncToSheets('hourly'),60*60*1000);
+  if(_cloudPushTimer)clearTimeout(_cloudPushTimer);
+  _cloudPushTimer=setTimeout(()=>cloudPush('change'),5000);
 }
-function saveSheetsUrl(){
-  data.settings.sheetsUrl=document.getElementById('setSheetsUrl').value.trim();
-  save();showToast('URL shranjen ✓','success');startAutoSync();
-}
-async function testSync(){
+
+// Potegne podatke iz oblaka. Vrne true če so bili naloženi.
+async function cloudPull(opts={}){
   const url=data.settings.sheetsUrl;
-  if(!url){showToast('Najprej vpiši URL!','error');return;}
-  document.getElementById('syncTestResult').textContent='Testiram...';
+  if(!url)return false;
+  setSyncStatus('syncing','Berem iz oblaka...');
   try{
-    await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'test'})});
-    document.getElementById('syncTestResult').textContent='✅ Poslano (no-cors)';
-    setSyncStatus('ok','Nastavljeno');
-  }catch(e){document.getElementById('syncTestResult').textContent='❌ '+e.message;setSyncStatus('error','Napaka');}
+    const res=await fetch(url+'?action=load',{method:'GET'});
+    const j=await res.json();
+    if(!j.ok){setSyncStatus('error','Napaka: '+(j.error||'?'));return false;}
+    if(!j.data){
+      // Oblak je prazen — prvi zagon. Pošljemo trenutne podatke gor.
+      setSyncStatus('ok','Oblak prazen — nalagam gor');
+      if(data.pacienti.length>0)await cloudPush('init-empty');
+      return false;
+    }
+    const remote=JSON.parse(j.data);
+    const remoteTime=j.updatedAt||'';
+    const localTime=data.settings.lastCloudSync||'';
+    // Odločitev: če lokalno NImamo pacientov, vedno vzemi oblak.
+    // Sicer primerjaj časovni žig — novejši zmaga.
+    const localEmpty=data.pacienti.length===0;
+    const remoteNewer=remoteTime>localTime;
+    if(localEmpty||opts.force||remoteNewer){
+      // Če imamo lokalne spremembe, ki niso v oblaku, opozori
+      if(!localEmpty&&!opts.force&&!remoteNewer){
+        setSyncStatus('ok','Lokalno je novejše');
+        return false;
+      }
+      data=remote;
+      migrateLoadedData();
+      data.settings.sheetsUrl=url; // ohrani URL
+      data.settings.lastCloudSync=remoteTime;
+      try{localStorage.setItem('depo_v4',JSON.stringify(data));}catch(e){}
+      setSyncStatus('ok','Naloženo iz oblaka ✓');
+      renderDashboard();
+      return true;
+    }else{
+      setSyncStatus('ok','Že posodobljeno');
+      return false;
+    }
+  }catch(e){
+    setSyncStatus('error','Ni povezave z oblakom');
+    return false;
+  }
+}
+
+async function startAutoSync(){
+  if(!data.settings.sheetsUrl)return;
+  // Ob zagonu potegni svežo verzijo iz oblaka
+  await cloudPull();
+  // Periodično preverjaj (vsakih 5 min), če je druga ambulanta kaj spremenila
+  setInterval(()=>{if(!_cloudBusy)cloudPull();},5*60*1000);
+}
+
+function saveSheetsUrl(){
+  const url=document.getElementById('setSheetsUrl').value.trim();
+  data.settings.sheetsUrl=url;
+  save();
+  showToast('URL shranjen ✓','success');
+  if(url){
+    // Po nastavitvi takoj sinhroniziraj
+    cloudPull().then(loaded=>{
+      if(!loaded&&data.pacienti.length>0)cloudPush('after-set');
+    });
+  }
+}
+
+async function testSync(){
+  const url=data.settings.sheetsUrl||document.getElementById('setSheetsUrl').value.trim();
+  if(!url){showToast('Najprej vpiši URL!','error');return;}
+  const el=document.getElementById('syncTestResult');
+  el.textContent='Testiram...';
+  try{
+    const res=await fetch(url+'?action=ping',{method:'GET'});
+    const j=await res.json();
+    if(j.ok){
+      el.textContent='✅ Povezava deluje';
+      el.style.color='var(--accent)';
+      setSyncStatus('ok','Povezan');
+    }else{
+      el.textContent='❌ '+(j.error||'napaka');
+      el.style.color='var(--danger)';
+    }
+  }catch(e){
+    el.textContent='❌ Ni povezave — preveri URL in da je dostop "Anyone"';
+    el.style.color='var(--danger)';
+    setSyncStatus('error','Napaka');
+  }
+}
+
+// Ročni gumb: potegni iz oblaka (prepiše lokalno)
+async function cloudForcePull(){
+  if(!confirm('Prenesti najnovejše podatke iz oblaka?\n\nTrenutni lokalni podatki bodo prepisani z verzijo iz oblaka.'))return;
+  const loaded=await cloudPull({force:true});
+  if(loaded)showToast('Podatki preneseni iz oblaka ✓','success');
+  else showToast('Ni podatkov v oblaku ali napaka','error');
+}
+// Ročni gumb: pošlji v oblak (prepiše oblak)
+async function cloudForcePush(){
+  if(!data.settings.sheetsUrl){showToast('Najprej nastavi URL!','error');return;}
+  await cloudPush('manual');
+  showToast('Poslano v oblak ✓','success');
 }
 
 // ============================================================
@@ -1883,7 +2007,7 @@ function confirmInjekcija(){
   }
   save();closeModal('modalPotrdi');
   showToast(`✅ Potrjeno! Naslednji: ${ns?fmtDate(ns.datum):'—'}`, 'success');
-  syncToSheets(`Injekcija: ${p.ime} ${p.priimek} ${datum}`);
+  // cloud push gre samodejno prek save()
   renderDashboard();
   // Shranim za PSA korak in print
   const newT=ns?data.termini.find(x=>x.datum===ns.datum&&x.pacientId===p.id&&x.status==='caka'):null;
@@ -2173,7 +2297,7 @@ function confirmKontrola(){
   p.zadnjaKontrola=datum;
   save();closeModal('modalPotrdiKontrolo');
   showToast('Kontrola potrjena ✓','success');
-  syncToSheets(`Kontrola: ${p.ime} ${p.priimek} ${datum}`);
+  // cloud push gre samodejno prek save()
   renderDashboard();
 }
 
@@ -2694,10 +2818,19 @@ function renderNastavitve(){
   document.getElementById('setStart').value=s.start||'09:00';
   document.getElementById('setEnd').value=s.end||'11:00';
   document.getElementById('setSheetsUrl').value=s.sheetsUrl||'';
+  const cs=document.getElementById('cloudSyncStatus');
+  if(cs){
+    if(s.sheetsUrl){
+      const last=s.lastCloudSync?new Date(s.lastCloudSync).toLocaleString('sl-SI'):'še nikoli';
+      cs.innerHTML=`<strong>Status:</strong> <span style="color:var(--accent)">✅ Povezan</span><br><strong>Zadnja sinhronizacija:</strong> ${last}`;
+    }else{
+      cs.innerHTML='<span style="color:var(--text2)">Sinhronizacija ni nastavljena</span>';
+    }
+  }
   document.getElementById('headerOrd').textContent=s.ordinacija||'Ordinacija';
   renderZdravilaList();
   renderBackupStatus();
-  if(s.sheetsUrl)setSyncStatus('ok','Nastavljeno');
+  if(s.sheetsUrl)setSyncStatus('ok','Povezan');
 }
 function renderZdravilaList(){
   const list=document.getElementById('zdravilaList');
@@ -3095,7 +3228,7 @@ document.addEventListener('keydown',e=>{
 // ============================================================
 // PWA — verzija, service worker, samodejne posodobitve
 // ============================================================
-const APP_VERSION='v4k';
+const APP_VERSION='v4l';
 (function(){
   // Prikaz verzije v glavi
   const h=document.querySelector('.header-title')||document.querySelector('header');
