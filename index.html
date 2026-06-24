@@ -352,6 +352,7 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" onclick="cloudForcePull()">⬇ Prenesi iz oblaka</button>
       <button class="btn btn-secondary btn-sm" onclick="cloudForcePush()">⬆ Pošlji v oblak</button>
+      <button class="btn btn-secondary btn-sm" onclick="openCloudHistory()" style="border-color:var(--accent);color:var(--accent)">↩ Prejšnje verzije</button>
       <button class="btn btn-secondary btn-sm" onclick="cloudDiagnostika()" style="border-color:var(--info);color:var(--info)">🔍 Diagnostika</button>
     </div>
     <p style="font-size:.78rem;color:var(--text2);margin-top:10px">
@@ -460,6 +461,18 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
       <button class="btn btn-danger btn-sm" id="btnBrisiZdravilo" onclick="deleteZdravilo()" style="display:none;margin-right:auto">🗑 Briši</button>
       <button class="btn btn-secondary" onclick="closeModal('modalZdravilo')">Prekliči</button>
       <button class="btn btn-primary" onclick="saveZdravilo()">Shrani</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: PREJŠNJE VERZIJE (cloud zgodovina) -->
+<div class="modal-overlay" id="modalCloudHistory">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-title">↩ Prejšnje verzije v oblaku</div>
+    <p style="font-size:.84rem;color:var(--text2);margin-bottom:12px">Oblak hrani zadnjih 10 verzij. Če se je kaj pomotoma prepisalo, obnovi prejšnjo. Trenutno stanje se pred obnovo tudi shrani.</p>
+    <div id="cloudHistoryList" style="max-height:50vh;overflow-y:auto">Nalagam...</div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modalCloudHistory')">Zapri</button>
     </div>
   </div>
 </div>
@@ -1428,6 +1441,12 @@ async function cloudPush(reason=''){
   const url=data.settings.sheetsUrl;
   if(!url)return false;
   if(_cloudBusy)return false;
+  // ZAŠČITA: če lokalno nimamo pacientov, ne prepiši oblaka samodejno.
+  // (Prepreči, da prazna/sveža naprava povozi polno bazo v oblaku.)
+  if(data.pacienti.length===0&&reason!=='manual-empty'){
+    setSyncStatus('error','Lokalno prazno — ne pošiljam (zaščita)');
+    return false;
+  }
   _cloudBusy=true;
   setSyncStatus('syncing','Shranjujem v oblak...');
   let success=false;
@@ -1441,7 +1460,8 @@ async function cloudPush(reason=''){
     if(j.ok){
       data.settings.lastCloudSync=j.updatedAt||new Date().toISOString();
       try{localStorage.setItem('depo_v4',JSON.stringify(data));}catch(e){}
-      setSyncStatus('ok','V oblaku ✓ '+new Date().toLocaleTimeString('sl'));
+      const prejInfo=(typeof j.prej==='number'&&j.prej!==j.novih)?` (${j.prej}→${j.novih})`:'';
+      setSyncStatus('ok','V oblaku ✓ '+new Date().toLocaleTimeString('sl')+prejInfo);
       success=true;
     }else{
       setSyncStatus('error','Napaka: '+(j.error||'?'));
@@ -1462,6 +1482,8 @@ function scheduleCloudPush(){
 }
 
 // Potegne podatke iz oblaka. Vrne true če so bili naloženi.
+// opts.force = ročni "Prenesi iz oblaka" (vpraša pri tveganem prepisu)
+// opts.silent = samodejni (periodični) — ne prepiše, če bi izgubil lokalne spremembe
 async function cloudPull(opts={}){
   const url=data.settings.sheetsUrl;
   if(!url)return false;
@@ -1471,48 +1493,80 @@ async function cloudPull(opts={}){
     const j=await res.json();
     if(!j.ok){setSyncStatus('error','Napaka: '+(j.error||'?'));return false;}
     if(!j.data){
-      // Oblak je prazen — prvi zagon. Pošljemo trenutne podatke gor.
-      setSyncStatus('ok','Oblak prazen — nalagam gor');
-      if(data.pacienti.length>0)await cloudPush('init-empty');
+      setSyncStatus('ok','Oblak prazen');
+      if(data.pacienti.length>0&&opts.force)await cloudPush('manual');
       return false;
     }
     const remote=JSON.parse(j.data);
     const remoteTime=j.updatedAt||'';
     const localTime=data.settings.lastCloudSync||'';
-    // Odločitev: če lokalno NImamo pacientov, vedno vzemi oblak.
-    // Sicer primerjaj časovni žig — novejši zmaga.
     const localEmpty=data.pacienti.length===0;
     const remoteNewer=remoteTime>localTime;
-    if(localEmpty||opts.force||remoteNewer){
-      // Če imamo lokalne spremembe, ki niso v oblaku, opozori
-      if(!localEmpty&&!opts.force&&!remoteNewer){
-        setSyncStatus('ok','Lokalno je novejše');
-        return false;
+    const remoteCount=remote.pacienti?remote.pacienti.length:0;
+    const localCount=data.pacienti.length;
+
+    // Če lokalno prazno → varno vzemi oblak
+    if(localEmpty){
+      return applyRemote(remote,remoteTime,url);
+    }
+
+    // ZAŠČITA pri samodejnem (periodičnem) pull:
+    // ne prepiši lokalnih, če oblak NI novejši (sicer bi izgubili tukajšnje delo)
+    if(opts.silent){
+      if(remoteNewer){
+        // Oblak novejši — a če bi izgubili veliko lokalnih pacientov, raje vprašaj
+        if(remoteCount<localCount-2){
+          // sumljivo: oblak ima manj — ne prepiši tiho
+          setSyncStatus('error',`⚠ Oblak ima ${remoteCount}, lokalno ${localCount} — preveri ročno`);
+          return false;
+        }
+        return applyRemote(remote,remoteTime,url);
       }
-      data=remote;
-      migrateLoadedData();
-      data.settings.sheetsUrl=url; // ohrani URL
-      data.settings.lastCloudSync=remoteTime;
-      try{localStorage.setItem('depo_v4',JSON.stringify(data));}catch(e){}
-      setSyncStatus('ok','Naloženo iz oblaka ✓');
-      renderDashboard();
-      return true;
-    }else{
-      setSyncStatus('ok','Že posodobljeno');
+      setSyncStatus('ok','Lokalno posodobljeno');
       return false;
     }
+
+    // ROČNI "Prenesi iz oblaka" (force): vpraša pri tveganju
+    if(opts.force){
+      if(remoteCount<localCount){
+        if(!confirm(`⚠ POZOR\n\nV oblaku je ${remoteCount} pacientov, lokalno jih imaš ${localCount}.\n\nČe preneseš, izgubiš ${localCount-remoteCount} lokalnih. Nadaljujem?`))
+          {setSyncStatus('ok','Preklicano');return false;}
+      }
+      return applyRemote(remote,remoteTime,url);
+    }
+
+    // Privzeto (ob zagonu): novejši zmaga, a varuj pred izgubo
+    if(remoteNewer){
+      if(remoteCount<localCount-2){
+        setSyncStatus('error',`⚠ Oblak (${remoteCount}) < lokalno (${localCount}) — preveri ročno`);
+        return false;
+      }
+      return applyRemote(remote,remoteTime,url);
+    }
+    setSyncStatus('ok','Že posodobljeno');
+    return false;
   }catch(e){
     setSyncStatus('error','Ni povezave z oblakom');
     return false;
   }
+}
+function applyRemote(remote,remoteTime,url){
+  data=remote;
+  migrateLoadedData();
+  data.settings.sheetsUrl=url;
+  data.settings.lastCloudSync=remoteTime;
+  try{localStorage.setItem('depo_v4',JSON.stringify(data));}catch(e){}
+  setSyncStatus('ok','Naloženo iz oblaka ✓');
+  renderDashboard();
+  return true;
 }
 
 async function startAutoSync(){
   if(!data.settings.sheetsUrl)return;
   // Ob zagonu potegni svežo verzijo iz oblaka
   await cloudPull();
-  // Periodično preverjaj (vsakih 5 min), če je druga ambulanta kaj spremenila
-  setInterval(()=>{if(!_cloudBusy)cloudPull();},5*60*1000);
+  // Periodično (vsakih 5 min) — silent način, ne prepiše lokalnih sprememb
+  setInterval(()=>{if(!_cloudBusy)cloudPull({silent:true});},5*60*1000);
 }
 
 function saveSheetsUrl(){
@@ -1567,49 +1621,89 @@ async function cloudForcePush(){
   else showToast('Pošiljanje NI uspelo — glej diagnostiko','error');
 }
 
-// DIAGNOSTIKA: pošlje testni zapis in pokaže SUROV odgovor strežnika na zaslonu
+// ============================================================
+// CLOUD ZGODOVINA — branje seznama verzij + obnova
+// ============================================================
+async function openCloudHistory(){
+  const url=data.settings.sheetsUrl;
+  if(!url){showToast('Najprej nastavi URL!','error');return;}
+  openModal('modalCloudHistory');
+  const box=document.getElementById('cloudHistoryList');
+  box.innerHTML='Nalagam verzije iz oblaka...';
+  try{
+    const res=await fetch(url+'?action=history',{method:'GET'});
+    const j=await res.json();
+    if(!j.ok){box.innerHTML='<span style="color:var(--danger)">Napaka: '+(j.error||'?')+'</span>';return;}
+    if(!j.versions||j.versions.length===0){
+      box.innerHTML='<p style="color:var(--text2);padding:12px">Še ni shranjenih verzij. Zgodovina se začne polniti ob naslednjih shranjevanjih.</p>';
+      return;
+    }
+    box.innerHTML=j.versions.map((v,i)=>{
+      let datum=v.updatedAt;
+      try{datum=new Date(v.updatedAt).toLocaleString('sl-SI');}catch(e){}
+      const najnovejsa=i===0;
+      return`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);gap:10px">
+        <div>
+          <strong>${datum}</strong>${najnovejsa?' <span class="badge-green" style="font-size:.7rem">najnovejša</span>':''}<br>
+          <span style="font-size:.8rem;color:var(--text2)">${v.pacientov} pacientov</span>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="restoreCloudVersion('${v.id}',${v.pacientov})">Obnovi</button>
+      </div>`;
+    }).join('');
+  }catch(e){
+    box.innerHTML='<span style="color:var(--danger)">Ni povezave: '+e.message+'</span>';
+  }
+}
+
+async function restoreCloudVersion(id,pacientov){
+  if(!confirm(`Obnoviti verzijo s ${pacientov} pacienti?\n\nTrenutno stanje v oblaku se pred obnovo shrani v zgodovino (lahko se vrneš nazaj). Po obnovi se podatki naložijo tudi v to napravo.`))return;
+  const url=data.settings.sheetsUrl;
+  const box=document.getElementById('cloudHistoryList');
+  box.innerHTML='Obnavljam...';
+  try{
+    const res=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'restore',id:id})
+    });
+    const j=await res.json();
+    if(j.ok){
+      showToast(`Verzija obnovljena (${j.pacientov} pacientov) ✓`,'success');
+      closeModal('modalCloudHistory');
+      await cloudPull({force:true});
+    }else{
+      box.innerHTML='<span style="color:var(--danger)">Napaka: '+(j.error||'?')+'</span>';
+    }
+  }catch(e){
+    box.innerHTML='<span style="color:var(--danger)">Ni povezave: '+e.message+'</span>';
+  }
+}
+
+// DIAGNOSTIKA: pokliče ločeno 'diag' akcijo na strežniku, ki piše v LOČEN testni list.
+// NIKOLI ne pošlje/prepiše pravih podatkov.
 async function cloudDiagnostika(){
   const url=data.settings.sheetsUrl;
   if(!url){alert('Najprej vnesi in shrani URL!');return;}
   const box=document.getElementById('cloudSyncStatus');
   const log=(m)=>{if(box)box.innerHTML='<pre style="white-space:pre-wrap;font-size:.72rem;margin:0">'+m+'</pre>';};
-  log('1/3 Pošiljam testni zapis...');
-  let report='=== DIAGNOSTIKA ===\n';
-  // 1) POST save z malim testnim zapisom
+  log('Preverjam povezavo (brez spreminjanja podatkov)...');
+  let report='=== DIAGNOSTIKA (varna) ===\n';
   try{
-    const testData={pacienti:[{id:999,ime:'DIAG',priimek:'TEST',psa:[]}],termini:[],zaloge:{},zalogeLog:[],zdravila:[],nextId:1000,settings:{}};
-    const res=await fetch(url,{
-      method:'POST',
-      headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:'save',payload:JSON.stringify(testData)})
-    });
-    report+='POST status: '+res.status+' '+res.statusText+'\n';
-    report+='POST type: '+res.type+'\n';
+    const res=await fetch(url+'?action=diag',{method:'GET'});
+    report+='Status: '+res.status+'\n';
     const txt=await res.text();
-    report+='POST odgovor:\n'+txt.slice(0,400)+'\n\n';
-  }catch(e){
-    report+='POST NAPAKA: '+e.name+' — '+e.message+'\n\n';
-  }
-  log(report+'2/3 Berem nazaj...');
-  // 2) GET load — preverim, ali je testni zapis prišel v Sheet
-  try{
-    const res2=await fetch(url+'?action=load',{method:'GET'});
-    const txt2=await res2.text();
-    report+='LOAD status: '+res2.status+'\n';
-    let parsed;try{parsed=JSON.parse(txt2);}catch(e){parsed=null;}
-    if(parsed&&parsed.data){
-      const d=JSON.parse(parsed.data);
-      const ima=d.pacienti&&d.pacienti.some(p=>p.ime==='DIAG');
-      report+='V oblaku najdenih pacientov: '+(d.pacienti?d.pacienti.length:0)+'\n';
-      report+=ima?'✅ TESTNI ZAPIS JE PRIŠEL V OBLAK!\n':'⚠ Testni zapis NI v oblaku\n';
+    let j;try{j=JSON.parse(txt);}catch(e){j=null;}
+    if(j&&j.ok){
+      report+='✅ Pisanje/branje v oblak DELUJE\n';
+      report+='Pravih pacientov v oblaku: '+j.pravihPacientovVOblaku+'\n';
+      report+='\n(Tvoji podatki se NISO spremenili.)';
     }else{
-      report+='LOAD: data je prazen (null)\n';
-      report+='Surov:\n'+txt2.slice(0,300)+'\n';
+      report+='⚠ Težava: '+(j?j.error||j.msg:txt.slice(0,200))+'\n';
     }
   }catch(e){
-    report+='LOAD NAPAKA: '+e.name+' — '+e.message+'\n';
+    report+='NAPAKA: '+e.name+' — '+e.message+'\n';
+    report+='(Najpogosteje: star service worker. Počisti predpomnilnik.)';
   }
-  report+='\n3/3 Končano. Slikaj to in pošlji.';
   log(report);
 }
 
@@ -3280,7 +3374,7 @@ document.addEventListener('keydown',e=>{
 // ============================================================
 // PWA — verzija, service worker, samodejne posodobitve
 // ============================================================
-const APP_VERSION='v4n.2';
+const APP_VERSION='v4p';
 (function(){
   // Prikaz verzije v glavi
   const h=document.querySelector('.header-title')||document.querySelector('header');
