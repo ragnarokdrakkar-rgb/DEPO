@@ -1430,10 +1430,10 @@ async function cloudPush(reason=''){
   _cloudBusy=true;
   setSyncStatus('syncing','Shranjujem v oblak...');
   try{
-    const res=await fetch(url+'?action=save',{
+    const res=await fetch(url,{
       method:'POST',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify(data)
+      body:JSON.stringify({action:'save',payload:JSON.stringify(data)})
     });
     const j=await res.json();
     if(j.ok){
@@ -3228,7 +3228,7 @@ document.addEventListener('keydown',e=>{
 // ============================================================
 // PWA — verzija, service worker, samodejne posodobitve
 // ============================================================
-const APP_VERSION='v4l';
+const APP_VERSION='v4l.2';
 (function(){
   // Prikaz verzije v glavi
   const h=document.querySelector('.header-title')||document.querySelector('header');
