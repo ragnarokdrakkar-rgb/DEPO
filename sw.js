@@ -1,6 +1,6 @@
 // Service Worker — Depo Injekcije
-// Ob vsaki novi verziji aplikacije povečaj VERSION (npr. v4i-2, v4i-3 ...)
-const VERSION = 'v4j-2';
+// Ob vsaki novi verziji aplikacije povečaj VERSION (npr. v4k-2, v4k-3 ...)
+const VERSION = 'v4k-1';
 const CACHE = 'depo-' + VERSION;
 const ASSETS = [
   './',
@@ -12,9 +12,7 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS))
-  );
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
 });
 
 self.addEventListener('activate', e => {
@@ -25,8 +23,6 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Strategija: network-first za HTML (vedno sveža verzija, ko je internet),
-// cache fallback ko ni interneta. Ostalo cache-first.
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.mode === 'navigate' || url.pathname.endsWith('index.html')) {
@@ -48,7 +44,6 @@ self.addEventListener('fetch', e => {
   );
 });
 
-// Sporočilo iz aplikacije: takoj aktiviraj novo verzijo
 self.addEventListener('message', e => {
   if (e.data === 'SKIP_WAITING') self.skipWaiting();
 });

@@ -350,20 +350,25 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
     </div>
   </div>
   <div class="card">
-    <div class="card-title">💾 Avtomatski backup ob 12:00</div>
+    <div class="card-title">💾 Varnostno shranjevanje podatkov</div>
+    <div id="backupWarnBanner"></div>
     <p style="font-size:.88rem;color:var(--text2);margin-bottom:14px">
-      Vsak dan se podatki shranijo kot JSON datoteka <strong>na disk</strong> — neodvisno od brskalnika.
-      Tako ne izgubiš podatkov, če nekdo izbriše piškotke. Obdrži se zadnjih 14 dni, starejši se brišejo avtomatsko.
+      Podatki se shranjujejo kot JSON datoteka <strong>v mapo na disku</strong>, ki jo izbereš. Shranjevanje je <strong>samodejno ob vsaki spremembi</strong> in vsak dan ob 12:00. Obdrži se zadnjih 30 dni.
     </p>
+    <div style="background:#fdeaea;border:1px solid #c0392b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.84rem">
+      <strong style="color:#c0392b">⚠ NE shranjuj v mapo "Prenosi" (Downloads)!</strong><br>
+      <span style="color:#555">Brisanje piškotkov v Chromu izbriše tudi Prenose. Izberi <strong>navadno mapo</strong> (npr. Dokumenti\\DepoBackup) ali še bolje mapo v <strong>OneDrive / Google Drive</strong>, da imaš kopijo v oblaku.</span>
+    </div>
     <div id="backupStatus" style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:14px;font-size:.86rem"></div>
     <div style="display:flex;flex-wrap:wrap;gap:8px">
-      <button class="btn btn-primary" onclick="chooseBackupDir()" id="btnChooseDir">📁 Izberi mapo za backup</button>
-      <button class="btn btn-secondary" onclick="toggleAutoBackupDownload()" id="btnAutoDownload">⬇ Ali: avtomatski download</button>
-      <button class="btn btn-success" onclick="runAutoBackup('manual')">💾 Backup zdaj</button>
+      <button class="btn btn-primary" onclick="chooseBackupDir()" id="btnChooseDir">📁 Izberi varno mapo</button>
+      <button class="btn btn-success" onclick="runAutoBackup('manual')">💾 Shrani zdaj</button>
+      <button class="btn btn-secondary" onclick="restoreFromFile()" id="btnRestoreFile">📂 Obnovi iz datoteke</button>
+      <button class="btn btn-secondary btn-sm" onclick="toggleAutoBackupDownload()" id="btnAutoDownload">⬇ Samo prenos (zasilno)</button>
       <button class="btn btn-danger btn-sm" onclick="disableAutoBackup()" id="btnDisableBackup" style="display:none">Izklopi</button>
     </div>
     <p style="font-size:.78rem;color:var(--text2);margin-top:10px">
-      <strong>Pomembno:</strong> Aplikacija mora biti odprta ob 12:00. Če ni, se backup naredi takoj, ko jo naslednjič odpreš (po 12:00 tistega dne).
+      Tudi ob 12:00, če je aplikacija odprta. Sicer se naredi takoj ob naslednjem odprtju.
     </p>
   </div>
   <div class="card">
@@ -841,9 +846,101 @@ async function idbDel(key){
 }
 
 const BACKUP_HANDLE_KEY='backupDir';
-const BACKUP_KEEP_DAYS=14;
+const BACKUP_KEEP_DAYS=30;
 
 function fsaSupported(){return 'showDirectoryPicker' in window;}
+
+// ============================================================
+// BACKUP WARN BANNER — trajno opozorilo, če mapa ni nastavljena
+// ============================================================
+function backupIsSafe(){
+  return data.settings.autoBackupEnabled&&data.settings.autoBackupMode==='fsa';
+}
+function updateBackupWarnBanner(){
+  let b=document.getElementById('globalBackupWarn');
+  const safe=backupIsSafe();
+  if(!safe){
+    if(!b){
+      b=document.createElement('div');
+      b.id='globalBackupWarn';
+      b.style.cssText='background:#c0392b;color:#fff;padding:8px 14px;text-align:center;font-size:.85rem;cursor:pointer;font-weight:600';
+      b.onclick=()=>showPage('nastavitve');
+      document.body.insertBefore(b,document.body.firstChild);
+    }
+    const mode=data.settings.autoBackupMode;
+    if(mode==='download'){
+      b.innerHTML='⚠ Backup gre v Prenose (NI varno — izbriše se s piškotki). Klikni za nastavitev varne mape →';
+    }else{
+      b.innerHTML='⚠ Varnostno shranjevanje NI nastavljeno — podatki niso zaščiteni! Klikni za nastavitev →';
+    }
+  }else if(b){
+    b.remove();
+  }
+  const cb=document.getElementById('backupWarnBanner');
+  if(cb){
+    cb.innerHTML=safe?'':'<div style="background:#c0392b;color:#fff;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:.86rem"><strong>⚠ Trenutno NISI zaščiten pred izgubo podatkov.</strong> Klikni "Izberi varno mapo" spodaj.</div>';
+  }
+}
+
+// ============================================================
+// OBNOVITEV iz ročno izbrane datoteke (zasilna pot)
+// ============================================================
+async function restoreFromFile(){
+  if(fsaSupported()){
+    try{
+      const[fh]=await window.showOpenFilePicker({types:[{description:'JSON backup',accept:{'application/json':['.json']}}]});
+      const file=await fh.getFile();
+      doRestoreFromText(await file.text());
+    }catch(e){if(e.name!=='AbortError')showToast('Napaka: '+e.message,'error');}
+  }else{
+    const inp=document.createElement('input');
+    inp.type='file';inp.accept='.json';
+    inp.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>doRestoreFromText(ev.target.result);r.readAsText(f);};
+    inp.click();
+  }
+}
+function doRestoreFromText(text){
+  try{
+    const imp=JSON.parse(text);
+    if(!imp.pacienti)throw new Error('Napačen format');
+    if(!confirm(`Obnoviti ${imp.pacienti.length} pacientov iz te datoteke?\n\nTrenutni podatki bodo zamenjani.`))return;
+    data=imp;migrateLoadedData();save();renderDashboard();
+    showToast('Podatki obnovljeni ✓','success');updateBackupWarnBanner();
+  }catch(e){showToast('Napaka: '+e.message,'error');}
+}
+function migrateLoadedData(){
+  if(!data.settings)data.settings={ordinacija:'',maxPacientov:5,start:'09:00',end:'11:00',sheetsUrl:'',autoBackupEnabled:false,autoBackupMode:'',lastAutoBackup:'',backupHour:12};
+  if(data.settings.autoBackupEnabled===undefined)data.settings.autoBackupEnabled=false;
+  if(data.settings.autoBackupMode===undefined)data.settings.autoBackupMode='';
+  if(data.settings.backupHour===undefined)data.settings.backupHour=12;
+  if(!data.zdravila)data.zdravila=[];
+  if(data.zdravila.length>0&&typeof data.zdravila[0]==='string'){
+    const seen=new Set(),nl=[];
+    data.zdravila.forEach(s=>{const{ime,odmerek}=parseMed(s,'');const k=ime+'||'+odmerek;if(!seen.has(k)&&ime){seen.add(k);nl.push({ime,odmerek,enota:'mg',intervalDni:90});}});
+    data.zdravila=nl;
+  }
+  data.zdravila.forEach(z=>{if(!z.enota)z.enota='mg';if(!z.intervalDni)z.intervalDni=90;z.ime=titleCase(z.ime||'');z.odmerek=String(z.odmerek||'').replace(',','.');});
+  if(!data.zaloge)data.zaloge={};if(!data.zalogeLog)data.zalogeLog=[];
+  data.pacienti.forEach(p=>{
+    if(p.izbrisan===undefined)p.izbrisan=false;
+    if(p.telefon===undefined)p.telefon='';
+    if(!Array.isArray(p.psa))p.psa=[];
+    if(p.psaIntervalMeseci===undefined)p.psaIntervalMeseci=6;
+    if(typeof p.id!=='number')p.id=Number(p.id)||data.nextId++;
+    const parsed=parseMed(p.zdravilo,p.odmerek);
+    p.zdravilo=parsed.ime;
+    if(parsed.odmerek)p.odmerek=parsed.odmerek;
+    else if(p.odmerek)p.odmerek=String(p.odmerek).replace(',','.');
+    if(p.zdravilo&&p.odmerek&&!data.zdravila.some(z=>z.ime===p.zdravilo&&z.odmerek===p.odmerek)){
+      data.zdravila.push({ime:p.zdravilo,odmerek:p.odmerek,enota:'mg',intervalDni:p.interval||90});
+    }
+  });
+  data.termini.forEach(t=>{const parsed=parseMed(t.zdravilo,t.odmerek);t.zdravilo=parsed.ime;if(parsed.odmerek)t.odmerek=parsed.odmerek;else if(t.odmerek)t.odmerek=String(t.odmerek).replace(',','.');});
+  const oz=data.zaloge,nz={};
+  for(const k in oz){const v=oz[k];if(typeof v!=='number'||v<0)continue;const pts=k.split('||');const ps=parseMed(pts[0],pts[1]||'');if(ps.ime&&ps.odmerek){const nk=ps.ime+'||'+ps.odmerek;nz[nk]=(nz[nk]||0)+Math.round(v);}}
+  data.zaloge=nz;
+  data.zdravila.forEach(z=>{const k=z.ime+'||'+z.odmerek;if(data.zaloge[k]===undefined)data.zaloge[k]=0;});
+}
 
 async function chooseBackupDir(){
   if(!fsaSupported()){
@@ -860,6 +957,7 @@ async function chooseBackupDir(){
     await runAutoBackup('init');
     scheduleNextBackup();
     renderBackupStatus();
+    updateBackupWarnBanner();
   }catch(e){
     if(e.name!=='AbortError')showToast('Napaka: '+e.message,'error');
   }
@@ -869,23 +967,26 @@ function toggleAutoBackupDownload(){
   if(data.settings.autoBackupMode==='download'&&data.settings.autoBackupEnabled){
     disableAutoBackup();return;
   }
-  if(!confirm('Avtomatski download bo vsak dan ob 12:00 sprožil prenos JSON datoteke v mapo Prenosi. Brskalnik te lahko vpraša za potrditev.\n\nVklopiti?'))return;
+  if(!confirm('ZASILNI način: backup gre v mapo Prenosi vsak dan ob 12:00.\n\n⚠ POZOR: Prenosi se izbrišejo, če nekdo počisti piškotke v Chromu! To uporabi SAMO, če "Izberi varno mapo" ne deluje (npr. star brskalnik).\n\nVseeno vklopiti?'))return;
   data.settings.autoBackupEnabled=true;
   data.settings.autoBackupMode='download';
   save();
-  showToast('Avtomatski download vklopljen ✓','success');
+  showToast('Zasilni prenos vklopljen','success');
   scheduleNextBackup();
   renderBackupStatus();
+  updateBackupWarnBanner();
 }
 
 async function disableAutoBackup(){
-  if(!confirm('Izklopiti avtomatski backup?'))return;
+  if(!confirm('Izklopiti samodejno shranjevanje?'))return;
   data.settings.autoBackupEnabled=false;
+  data.settings.autoBackupMode='';
   try{await idbDel(BACKUP_HANDLE_KEY);}catch(e){}
   save();
   if(window._backupTimer){clearTimeout(window._backupTimer);window._backupTimer=null;}
-  showToast('Avtomatski backup izklopljen','error');
+  showToast('Samodejno shranjevanje izklopljeno','error');
   renderBackupStatus();
+  updateBackupWarnBanner();
 }
 
 async function verifyDirPermission(handle){
@@ -1013,20 +1114,20 @@ function renderBackupStatus(){
   if(btnChoose)btnChoose.style.display=fsaSupported()?'inline-flex':'none';
   if(btnDis)btnDis.style.display=s.autoBackupEnabled?'inline-flex':'none';
 
-  let modeText='<span style="color:var(--danger)">⚠ Izklopljen</span>';
+  let modeText='<span style="color:#c0392b;font-weight:700">⚠ NI nastavljeno — niste zaščiteni!</span>';
   if(s.autoBackupEnabled){
-    if(s.autoBackupMode==='fsa')modeText='<span style="color:var(--accent);font-weight:600">✅ Aktiven (mapa na disku)</span>';
-    else if(s.autoBackupMode==='download')modeText='<span style="color:var(--accent);font-weight:600">✅ Aktiven (avtomatski download)</span>';
+    if(s.autoBackupMode==='fsa')modeText='<span style="color:var(--accent);font-weight:600">✅ Varna mapa na disku</span>';
+    else if(s.autoBackupMode==='download')modeText='<span style="color:#e67e22;font-weight:700">⚠ Prenosi (zasilno, NI varno)</span>';
   }
   if(btnDl){
-    btnDl.textContent=(s.autoBackupMode==='download'&&s.autoBackupEnabled)?'⬇ Avto download (vklopljen)':'⬇ Ali: avtomatski download';
+    btnDl.textContent=(s.autoBackupMode==='download'&&s.autoBackupEnabled)?'⬇ Zasilni prenos (vklopljen)':'⬇ Samo prenos (zasilno)';
   }
   const hour=s.backupHour||12;
   el.innerHTML=`
     <div><strong>Status:</strong> ${modeText}</div>
-    <div style="margin-top:4px"><strong>Ura backupa:</strong> ${String(hour).padStart(2,'0')}:00</div>
-    <div style="margin-top:4px"><strong>Zadnji backup:</strong> ${fmtBackupTime(s.lastAutoBackup)}</div>
-    ${!fsaSupported()?'<div style="margin-top:4px;color:var(--warn);font-size:.8rem">⚠ Tvoj brskalnik ne podpira shranjevanja v mapo (Safari/iOS). Uporabi avtomatski download.</div>':''}
+    <div style="margin-top:4px"><strong>Shranjevanje:</strong> samodejno ob spremembi + dnevno ob ${String(hour).padStart(2,'0')}:00</div>
+    <div style="margin-top:4px"><strong>Zadnje shranjevanje:</strong> ${fmtBackupTime(s.lastAutoBackup)}</div>
+    ${!fsaSupported()?'<div style="margin-top:4px;color:var(--warn);font-size:.8rem">⚠ Ta brskalnik ne podpira shranjevanja v mapo (Safari/iOS). Uporabi zasilni prenos in redno ročno obnavljaj.</div>':''}
   `;
 }
 
@@ -1076,6 +1177,16 @@ async function initAutoBackup(){
   if(data.settings.autoBackupEnabled){
     await checkMissedBackup();
     scheduleNextBackup();
+  }
+  // 3) Pokaži opozorilni banner, če shranjevanje ni varno nastavljeno
+  updateBackupWarnBanner();
+  // 4) Če mapa NI nastavljena in obstajajo pacienti — ponudi nastavitev
+  if(!backupIsSafe()&&data.pacienti.length>0&&fsaSupported()){
+    setTimeout(()=>{
+      if(confirm('⚠ VARNOSTNO SHRANJEVANJE NI NASTAVLJENO\n\nTvoji podatki niso zaščiteni — če nekdo počisti piškotke, se izgubijo.\n\nŽeliš zdaj izbrati varno mapo za samodejno shranjevanje? (priporočeno: mapa v OneDrive ali Dokumenti)')){
+        chooseBackupDir();
+      }
+    },1500);
   }
 }
 
@@ -1206,6 +1317,31 @@ function save(){
   if(json.length>4*1024*1024){
     showToast('⚠ Podatki blizu limita (>4 MB). Naredi backup!','error');
   }
+  // Samodejni backup v izbrano mapo ob vsaki spremembi (z zamikom, da ne piše ob vsakem znaku)
+  scheduleAutoSaveToDisk();
+}
+// Debounced samodejno shranjevanje na disk (5 sekund po zadnji spremembi)
+let _autoSaveTimer=null;
+function scheduleAutoSaveToDisk(){
+  if(data.settings.autoBackupMode!=='fsa'||!data.settings.autoBackupEnabled)return;
+  if(_autoSaveTimer)clearTimeout(_autoSaveTimer);
+  _autoSaveTimer=setTimeout(()=>{autoSaveToDiskNow();},5000);
+}
+async function autoSaveToDiskNow(){
+  if(data.settings.autoBackupMode!=='fsa'||!data.settings.autoBackupEnabled)return;
+  try{
+    const handle=await idbGet(BACKUP_HANDLE_KEY);
+    if(!handle)return;
+    const ok=await verifyDirPermission(handle);
+    if(!ok){updateBackupWarnBanner();return;}
+    const filename='depo_backup_'+todayISO()+'.json';
+    await writeBackupToFile(handle,filename,JSON.stringify(data,null,2));
+    await rotateBackups(handle);
+    data.settings.lastAutoBackup=new Date().toISOString();
+    try{localStorage.setItem('depo_v4',JSON.stringify(data));}catch(e){}
+    const el=document.getElementById('backupStatus');
+    if(el&&document.getElementById('page-nastavitve').classList.contains('active'))renderBackupStatus();
+  }catch(e){console.warn('autosave failed',e);}
 }
 function getZ(){return data.zdravila;}
 // Helperji za zdravila (nova struktura)
@@ -2959,7 +3095,7 @@ document.addEventListener('keydown',e=>{
 // ============================================================
 // PWA — verzija, service worker, samodejne posodobitve
 // ============================================================
-const APP_VERSION='v4j.2';
+const APP_VERSION='v4k';
 (function(){
   // Prikaz verzije v glavi
   const h=document.querySelector('.header-title')||document.querySelector('header');
