@@ -177,7 +177,7 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
     <div class="card-title">📍 Danes</div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Ura</th><th>Pacient</th><th>Zdravilo</th><th>Tip</th><th>Akcija</th></tr></thead>
+        <thead><tr><th>Ura</th><th>Pacient</th><th>Zdravilo</th><th>PSA trend</th><th>Tip</th><th>Akcija</th></tr></thead>
         <tbody id="danesTable"></tbody>
       </table>
     </div>
@@ -1215,6 +1215,10 @@ async function initAutoBackup(){
 // ============================================================
 // DATA
 // ============================================================
+// VDELAN cloud URL — shranjen v kodi (na GitHubu), zato preživi "clear cookies".
+// Tudi če se localStorage izbriše, aplikacija ve, kam se povezati za obnovo.
+const DEFAULT_SHEETS_URL='https://script.google.com/macros/s/AKfycbwj3oqaK05vwdczEthCdvITIcsjiGBbzPKNEpJbE29KjebAmUm388O_5VZx9dBNtgUPhw/exec';
+
 let data=JSON.parse(localStorage.getItem('depo_v4')||'null')||{
   pacienti:[],termini:[],zaloge:{},zalogeLog:[],nextId:1,
   settings:{ordinacija:'',maxPacientov:5,start:'09:00',end:'11:00',sheetsUrl:'',
@@ -1229,6 +1233,8 @@ let data=JSON.parse(localStorage.getItem('depo_v4')||'null')||{
 };
 if(!data.settings)data.settings={ordinacija:'',maxPacientov:5,start:'09:00',end:'11:00',sheetsUrl:''};
 if(!data.settings.sheetsUrl)data.settings.sheetsUrl='';
+// Če URL ni shranjen (npr. po clear cookies), uporabi vdelanega iz kode
+if(!data.settings.sheetsUrl&&DEFAULT_SHEETS_URL)data.settings.sheetsUrl=DEFAULT_SHEETS_URL;
 if(data.settings.lastCloudSync===undefined)data.settings.lastCloudSync='';
 if(data.settings.autoBackupEnabled===undefined)data.settings.autoBackupEnabled=false;
 if(data.settings.autoBackupMode===undefined)data.settings.autoBackupMode='';
@@ -1563,8 +1569,17 @@ function applyRemote(remote,remoteTime,url){
 
 async function startAutoSync(){
   if(!data.settings.sheetsUrl)return;
-  // Ob zagonu potegni svežo verzijo iz oblaka
-  await cloudPull();
+  // Če je localStorage prazen (npr. po "clear cookies"), a imamo vdelan URL,
+  // samodejno potegni podatke iz oblaka — obnova brez ročnega vnosa URL-ja.
+  if(data.pacienti.length===0){
+    setSyncStatus('syncing','Obnavljam iz oblaka...');
+    const loaded=await cloudPull({force:true});
+    if(loaded){
+      showToast('Podatki obnovljeni iz oblaka ✓','success');
+    }
+  }else{
+    await cloudPull();
+  }
   // Periodično (vsakih 5 min) — silent način, ne prepiše lokalnih sprememb
   setInterval(()=>{if(!_cloudBusy)cloudPull({silent:true});},5*60*1000);
 }
@@ -1767,10 +1782,12 @@ function renderDashboard(){
       const p=getP(t.pacientId);
       const isK=t.tip==='kontrola';
       const done=t.status==='opravljeno';
+      const psaCell=p?`<span style="cursor:pointer" onclick="openPsaHistory('${p.id}')" title="PSA zgodovina">${psaSparkline(p,70,24)}</span> ${psaBadge(p)}`:'—';
       return`<tr style="${done?'opacity:.5':''}">
         <td><strong>${t.ura||'—'}</strong></td>
         <td><strong>${p?p.ime+' '+p.priimek:'?'}</strong>${p&&p.telefon?` <a href="tel:${p.telefon.replace(/\s/g,'')}" style="font-size:.78rem;color:var(--info)">📞</a>`:''}</td>
         <td>${isK?'—':t.zdravilo+' '+t.odmerek+'mg'}</td>
+        <td>${psaCell}</td>
         <td>${isK?'<span class="badge-purple">🩺 Kontrola</span>':'<span class="badge-blue">💉 Injekcija</span>'}</td>
         <td>${done?'<span class="badge-green">✅</span>':isK?`<button class="btn btn-success btn-sm" onclick="openPotrdiKontrolo('${t.id}')">✅ Potrdi</button>`:`<button class="btn btn-success btn-sm" onclick="openPotrdi('${t.id}')">✅ Potrdi</button> <button class="btn btn-primary btn-sm" onclick="openPrestavi('${t.id}')">📅</button>`}</td>
       </tr>`;
@@ -2585,7 +2602,25 @@ function printSlip(terminId){
     <p style="font-size:.75rem;color:#aaa;margin-top:8px">Natisnjeno: ${fmtDate(new Date())}</p></div>`;
   openModal('modalPrint');
 }
-function doPrint(){const c=document.getElementById('printSlipContent').innerHTML;const w=window.open('','_blank');w.document.write(`<html><head><title>Termin</title><style>body{font-family:Georgia,serif;padding:30px;max-width:600px}</style></head><body>${c}</body></html>`);w.document.close();w.print();}
+function doPrint(){
+  const c=document.getElementById('printSlipContent').innerHTML;
+  const w=window.open('','_blank');
+  // Dva izvoda na isto stran: zgornji za pacienta, spodnji za kartoteko, vmes prekinjena črta za rezanje
+  w.document.write(`<html><head><title>Naročilnica</title><style>
+    @page{margin:14mm}
+    body{font-family:Georgia,serif;margin:0}
+    .izvod{max-width:600px;margin:0 auto;padding:6px 10px}
+    .oznaka{font-size:.72rem;color:#999;text-align:right;font-style:italic;margin-bottom:2px}
+    .rez{border-top:2px dashed #bbb;text-align:center;margin:18px 0;position:relative}
+    .rez span{position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#fff;padding:0 10px;font-size:.7rem;color:#999}
+  </style></head><body>
+    <div class="izvod"><div class="oznaka">— izvod za pacienta —</div>${c}</div>
+    <div class="rez"><span>✂ ─ ─ ─ ─ ─ ─ ─ ─</span></div>
+    <div class="izvod"><div class="oznaka">— izvod za kartoteko —</div>${c}</div>
+  </body></html>`);
+  w.document.close();
+  w.print();
+}
 
 // ============================================================
 // LEKARNA — ključ je zdravilo||odmerek
@@ -3374,7 +3409,7 @@ document.addEventListener('keydown',e=>{
 // ============================================================
 // PWA — verzija, service worker, samodejne posodobitve
 // ============================================================
-const APP_VERSION='v4p';
+const APP_VERSION='v4r';
 (function(){
   // Prikaz verzije v glavi
   const h=document.querySelector('.header-title')||document.querySelector('header');

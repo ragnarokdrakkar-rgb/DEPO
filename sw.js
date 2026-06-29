@@ -1,6 +1,6 @@
 // Service Worker — Depo Injekcije
 // Ob vsaki novi verziji aplikacije povečaj VERSION (npr. v4m-2, v4m-3 ...)
-const VERSION = 'v4p-1';
+const VERSION = 'v4r-1';
 const CACHE = 'depo-' + VERSION;
 const ASSETS = [
   './',
