@@ -203,6 +203,17 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
   <div class="section-header">
     <div class="section-title">🧹 Urejanje — zamude in izgubljeni pacienti</div>
   </div>
+  <div class="card" id="dvojniCard" style="display:none">
+    <div class="card-title">👥 Pacienti z VEČ čakajočimi termini</div>
+    <p style="font-size:.84rem;color:var(--text2);margin-bottom:12px">Ti pacienti imajo več kot en čakajoči termin (običajno star zamujen + nov). Zaradi tega štejejo večkrat v naročilu zalog. Klikni "Počisti" — obdrži se najnovejši termin, stari se prekličejo.</p>
+    <button class="btn btn-primary btn-sm" style="margin-bottom:12px" onclick="pocistiVseDvojne()">🧹 Počisti vse naenkrat</button>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Pacient</th><th>Zdravilo</th><th>Čakajoči termini</th><th>Akcija</th></tr></thead>
+        <tbody id="dvojniTable"></tbody>
+      </table>
+    </div>
+  </div>
   <div class="card">
     <div class="card-title">⚠️ Pacienti brez prihodnjega termina</div>
     <p style="font-size:.84rem;color:var(--text2);margin-bottom:12px">Aktivni pacienti, ki nimajo razpisanega nobenega termina — sistem jih ne bo nikoli prikazal. Razpiši termin ali jih deaktiviraj.</p>
@@ -607,6 +618,20 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('modalPrint')">Zapri</button>
       <button class="btn btn-primary" onclick="doPrint()">🖨 Tiskaj</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: ZGODOVINA ZALOGE (preveri ujemanje) -->
+<div class="modal-overlay" id="modalZalogaHist">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-title" id="zalogaHistTitle">📋 Zgodovina zaloge</div>
+    <div id="zalogaHistSummary" style="background:var(--surface2);padding:12px 14px;border-radius:var(--radius-sm);margin-bottom:14px;font-size:.88rem"></div>
+    <div class="table-wrap" style="max-height:46vh;overflow-y:auto">
+      <table><thead><tr><th>Datum</th><th>Sprememba</th><th>Saldo</th><th>Opomba</th></tr></thead><tbody id="zalogaHistTable"></tbody></table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modalZalogaHist')">Zapri</button>
     </div>
   </div>
 </div>
@@ -2055,8 +2080,56 @@ function savePacient(){
   if(editingId){
     const idx=data.pacienti.findIndex(x=>x.id===Number(editingId));
     if(idx<0){showToast('Pacient ne obstaja!','error');return;}
-    data.pacienti[idx]={...data.pacienti[idx],...p};
-    showToast('Pacient posodobljen ✓','success');
+    const stari=data.pacienti[idx];
+    const zdraviloSpremenjen=(stari.zdravilo!==zdravilo||String(stari.odmerek)!==String(odmerek));
+    data.pacienti[idx]={...stari,...p};
+
+    if(zdraviloSpremenjen){
+      // Posodobi vse PRIHODNJE čakajoče injekcijske termine na novo zdravilo
+      let posodobljenih=0;
+      data.termini.forEach(t=>{
+        if(t.pacientId===Number(editingId)&&t.status==='caka'&&t.tip!=='kontrola'){
+          t.zdravilo=zdravilo;t.odmerek=odmerek;posodobljenih++;
+        }
+      });
+      // Preveri, ali je bila danes/nedavno potrjena injekcija s starim zdravilom
+      // (tipičen primer: potrdil Dipherelin, nato spremenil na Eligard, ker je dejansko dobil Eligard)
+      const danes=todayISO();
+      const nedavnaPotrditev=data.termini.filter(t=>
+        t.pacientId===Number(editingId)&&t.status==='opravljeno'&&
+        t.zdravilo===stari.zdravilo&&String(t.odmerek)===String(stari.odmerek)&&
+        t.opravljenoDatum&&daysDiff(t.opravljenoDatum,danes)<=3
+      ).sort((a,b)=>(b.opravljenoDatum||'').localeCompare(a.opravljenoDatum||''))[0];
+
+      let zalogaMsg='';
+      if(nedavnaPotrditev){
+        const popraviZalogo=confirm(
+          `Spremenil si zdravilo iz "${stari.zdravilo} ${stari.odmerek}mg" v "${zdravilo} ${odmerek}mg".\n\n`+
+          `Pred kratkim (${fmtDate(nedavnaPotrditev.opravljenoDatum)}) je bila potrjena injekcija s starim zdravilom.\n\n`+
+          `Ali je pacient dejansko dobil NOVO zdravilo (${zdravilo})?\n\n`+
+          `OK = popravi zalogo (vrni ${stari.zdravilo}, odštej ${zdravilo}) in popravi zapis\n`+
+          `Prekliči = pusti kot je`
+        );
+        if(popraviZalogo){
+          // Vrni staro zdravilo v zalogo
+          const oldZk=zalogeKey(stari.zdravilo,stari.odmerek);
+          data.zaloge[oldZk]=(data.zaloge[oldZk]||0)+1;
+          data.zalogeLog.push({datum:danes,zdravilo:stari.zdravilo,odmerek:stari.odmerek,tip:'prejem',kolicina:1,opomba:`Popravek: napačno odšteto (${p.ime} ${p.priimek})`});
+          // Odštej novo zdravilo
+          const newZk=zalogeKey(zdravilo,odmerek);
+          if(data.zaloge[newZk]===undefined)data.zaloge[newZk]=0;
+          data.zaloge[newZk]--;
+          data.zalogeLog.push({datum:danes,zdravilo,odmerek,tip:'poraba',kolicina:1,opomba:`${p.ime} ${p.priimek} (popravek zdravila)`});
+          // Popravi sam zapis opravljenega termina
+          nedavnaPotrditev.zdravilo=zdravilo;
+          nedavnaPotrditev.odmerek=odmerek;
+          zalogaMsg=' Zaloga popravljena.';
+        }
+      }
+      showToast(`Pacient posodobljen ✓ (${posodobljenih} prihodnjih terminov na novo zdravilo).${zalogaMsg}`,'success');
+    }else{
+      showToast('Pacient posodobljen ✓','success');
+    }
   }else{
     p.id=data.nextId++;
     p.izbrisan=false;
@@ -2158,7 +2231,16 @@ function confirmInjekcija(){
   t.status='opravljeno';t.opravljenoDatum=datum;t.opomba=opomba;
   p.zadnjaInjekcija=datum;
 
-  // Next termin — only if this was NOT a future first injection placeholder
+  // Počisti morebitne DRUGE čakajoče injekcijske termine istega pacienta
+  // (npr. star zamujen termin, ki ni bil potrjen) — da pacient ne šteje dvakrat.
+  let pociscenih=0;
+  data.termini.forEach(x=>{
+    if(x.id!==t.id&&x.pacientId===p.id&&x.status==='caka'&&x.tip!=='kontrola'){
+      x.status='preklican';x.opomba=(x.opomba?x.opomba+' · ':'')+'nadomeščen ob potrditvi';pociscenih++;
+    }
+  });
+
+  // Next termin
   const ns=calcNext(datum,p.interval);
   if(ns)data.termini.push({id:newId('t'),pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum:ns.datum,ura:ns.ura,status:'caka',tip:'injekcija',opomba:''});
 
@@ -2169,7 +2251,7 @@ function confirmInjekcija(){
     data.zalogeLog.push({datum,zdravilo:p.zdravilo,odmerek:p.odmerek,tip:'poraba',kolicina:1,opomba:`${p.ime} ${p.priimek}`});
   }
   save();closeModal('modalPotrdi');
-  showToast(`✅ Potrjeno! Naslednji: ${ns?fmtDate(ns.datum):'—'}`, 'success');
+  showToast(`✅ Potrjeno! Naslednji: ${ns?fmtDate(ns.datum):'—'}`+(pociscenih?` (počiščen ${pociscenih} star termin)`:''), 'success');
   // cloud push gre samodejno prek save()
   renderDashboard();
   // Shranim za PSA korak in print
@@ -2602,25 +2684,7 @@ function printSlip(terminId){
     <p style="font-size:.75rem;color:#aaa;margin-top:8px">Natisnjeno: ${fmtDate(new Date())}</p></div>`;
   openModal('modalPrint');
 }
-function doPrint(){
-  const c=document.getElementById('printSlipContent').innerHTML;
-  const w=window.open('','_blank');
-  // Dva izvoda na isto stran: zgornji za pacienta, spodnji za kartoteko, vmes prekinjena črta za rezanje
-  w.document.write(`<html><head><title>Naročilnica</title><style>
-    @page{margin:14mm}
-    body{font-family:Georgia,serif;margin:0}
-    .izvod{max-width:600px;margin:0 auto;padding:6px 10px}
-    .oznaka{font-size:.72rem;color:#999;text-align:right;font-style:italic;margin-bottom:2px}
-    .rez{border-top:2px dashed #bbb;text-align:center;margin:18px 0;position:relative}
-    .rez span{position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#fff;padding:0 10px;font-size:.7rem;color:#999}
-  </style></head><body>
-    <div class="izvod"><div class="oznaka">— izvod za pacienta —</div>${c}</div>
-    <div class="rez"><span>✂ ─ ─ ─ ─ ─ ─ ─ ─</span></div>
-    <div class="izvod"><div class="oznaka">— izvod za kartoteko —</div>${c}</div>
-  </body></html>`);
-  w.document.close();
-  w.print();
-}
+function doPrint(){const c=document.getElementById('printSlipContent').innerHTML;const w=window.open('','_blank');w.document.write(`<html><head><title>Termin</title><style>body{font-family:Georgia,serif;padding:30px;max-width:600px}</style></head><body>${c}</body></html>`);w.document.close();w.print();}
 
 // ============================================================
 // LEKARNA — ključ je zdravilo||odmerek
@@ -2736,6 +2800,7 @@ function renderLekarna(){
         </span></div>
       <div class="med-row"><span>Zaloga zaleže za</span><span style="${lowDays?'color:var(--danger);font-weight:700':'color:var(--text2)'}">${zalezeDni!==null?(zalezeDni+' dni'):'—'}</span></div>
       <div class="med-row" style="border:none;background:#1e4d3522;margin:0 -14px;padding:10px 14px;border-radius:0 0 8px 8px"><span style="font-weight:600">📦 Naroči (${periodDays}d)</span><span style="color:var(--accent);font-weight:800;font-size:1.2rem">${naroci||'OK'}</span></div>
+      <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px" onclick="openZalogaHistory('${k}')">📋 Preveri zgodovino zaloge</button>
     </div>`;
   }).join(''):'<p style="color:var(--text2);padding:16px">Ni zdravil / pacientov.</p>';
 
@@ -2757,6 +2822,44 @@ function renderLekarna(){
         <td>${l.tip==='prejem'?'<span class="badge-green">📦 Prejem</span>':l.tip==='rocno'?'<span class="badge-blue">✏️ Ročno</span>':'<span class="badge-gray">💉 Poraba</span>'}</td>
         <td>${l.tip==='prejem'?'+':l.tip==='rocno'?'=':'−'}${l.kolicina}</td><td style="color:var(--text2)">${l.opomba||''}</td></tr>`).join('')
     :'<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text2)">Ni vpisov</td></tr>';
+}
+
+// Pokaže celotno zgodovino zaloge za eno zdravilo + preveri ujemanje
+function openZalogaHistory(key){
+  const[z,o]=key.split('||');
+  document.getElementById('zalogaHistTitle').textContent=`📋 ${z} ${o}mg`;
+  const vpisi=data.zalogeLog.filter(l=>zalogeKey(l.zdravilo||'',l.odmerek||'')===key)
+    .slice().sort((a,b)=>(a.datum||'').localeCompare(b.datum||''));
+  const trenutna=data.zaloge[key]||0;
+  let prejeto=0,porabljeno=0,rocnih=0;
+  vpisi.forEach(l=>{
+    if(l.tip==='prejem')prejeto+=l.kolicina;
+    else if(l.tip==='poraba')porabljeno+=l.kolicina;
+    else if(l.tip==='rocno')rocnih++;
+  });
+  let saldo=0;
+  const vrstice=vpisi.map(l=>{
+    let spr='';
+    if(l.tip==='prejem'){saldo+=l.kolicina;spr=`<span style="color:var(--accent)">📦 +${l.kolicina}</span>`;}
+    else if(l.tip==='poraba'){saldo-=l.kolicina;spr=`<span style="color:var(--text2)">💉 −${l.kolicina}</span>`;}
+    else if(l.tip==='rocno'){saldo=l.kolicina;spr=`<span style="color:var(--info)">✏️ =${l.kolicina}</span>`;}
+    return`<tr><td>${fmtDate(l.datum)}</td><td>${spr}</td><td><strong>${saldo}</strong></td><td style="color:var(--text2);font-size:.82rem">${l.opomba||''}</td></tr>`;
+  }).reverse();
+  const ujemanje=saldo===trenutna;
+  document.getElementById('zalogaHistSummary').innerHTML=`
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>📦 Skupaj prejeto:</span><strong>${prejeto}</strong></div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>💉 Skupaj porabljeno:</span><strong>${porabljeno}</strong></div>
+    ${rocnih>0?`<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>✏️ Ročnih popravkov:</span><strong>${rocnih}</strong></div>`:''}
+    <hr style="margin:8px 0;border:none;border-top:1px solid var(--border)">
+    <div style="display:flex;justify-content:space-between"><span>Izračunano:</span><strong>${saldo}</strong></div>
+    <div style="display:flex;justify-content:space-between"><span>Prikazano:</span><strong>${trenutna}</strong></div>
+    ${ujemanje
+      ?'<div style="color:var(--accent);margin-top:8px;font-weight:600">✅ Ujema se</div>'
+      :`<div style="color:var(--danger);margin-top:8px;font-weight:600">⚠ NE ujema se (razlika ${trenutna-saldo})</div><div style="font-size:.78rem;color:var(--text2);margin-top:4px">Verjetno ročni popravek ali manjkajoč vpis. Zalogo lahko popraviš na pravo vrednost s +/− gumbi.</div>`}`;
+  document.getElementById('zalogaHistTable').innerHTML=vrstice.length
+    ?vrstice.join('')
+    :'<tr><td colspan="4" style="text-align:center;padding:16px;color:var(--text2)">Ni zabeleženih sprememb za to zdravilo</td></tr>';
+  openModal('modalZalogaHist');
 }
 
 // Ročno popravljanje zaloge — direktni vnos
@@ -3208,13 +3311,72 @@ function getBrezTermina(){
   });
 }
 function updateUrejanjeBadge(){
-  const n=getZamude().length+getBrezTermina().length;
+  const n=getZamude().length+getBrezTermina().length+getDvojniTermini().length;
   const tab=document.getElementById('tabUrejanje');
   if(tab)tab.innerHTML='🧹 Urejanje'+(n>0?` <span style="background:var(--danger);color:#fff;border-radius:10px;padding:1px 7px;font-size:.72rem;font-weight:700">${n}</span>`:'');
 }
 
+function getDvojniTermini(){
+  // Vrne paciente z >1 čakajočim injekcijskim terminom
+  const byPatient={};
+  data.termini.forEach(t=>{
+    if(t.status==='caka'&&t.tip!=='kontrola'){
+      (byPatient[t.pacientId]=byPatient[t.pacientId]||[]).push(t);
+    }
+  });
+  const out=[];
+  for(const pid in byPatient){
+    if(byPatient[pid].length>1){
+      out.push({pacientId:Number(pid),termini:byPatient[pid].sort((a,b)=>a.datum.localeCompare(b.datum))});
+    }
+  }
+  return out;
+}
+function pocistiDvojne(pacientId){
+  const dvojni=getDvojniTermini().find(x=>x.pacientId===Number(pacientId));
+  if(!dvojni)return;
+  // Obdrži najnovejši (zadnji po datumu), ostale prekliči
+  const obdrzi=dvojni.termini[dvojni.termini.length-1];
+  let n=0;
+  dvojni.termini.forEach(t=>{
+    if(t.id!==obdrzi.id){t.status='preklican';t.opomba=(t.opomba?t.opomba+' · ':'')+'počiščen dvojnik';n++;}
+  });
+  save();renderUrejanje();updateUrejanjeBadge();renderDashboard();
+  showToast(`Počiščeno ${n} odvečnih terminov`,'success');
+}
+function pocistiVseDvojne(){
+  const dvojni=getDvojniTermini();
+  if(!dvojni.length){showToast('Ni dvojnih terminov','success');return;}
+  const skupaj=dvojni.reduce((s,x)=>s+x.termini.length-1,0);
+  if(!confirm(`Počistiti ${skupaj} odvečnih terminov pri ${dvojni.length} pacientih?\n\nPri vsakem se obdrži najnovejši termin, starejši se prekličejo.`))return;
+  let n=0;
+  dvojni.forEach(d=>{
+    const obdrzi=d.termini[d.termini.length-1];
+    d.termini.forEach(t=>{if(t.id!==obdrzi.id){t.status='preklican';t.opomba=(t.opomba?t.opomba+' · ':'')+'počiščen dvojnik';n++;}});
+  });
+  save();renderUrejanje();updateUrejanjeBadge();renderDashboard();
+  showToast(`Počiščeno ${n} odvečnih terminov ✓`,'success');
+}
+
 function renderUrejanje(){
   const ts=todayISO();
+  // Dvojni termini
+  const dvojni=getDvojniTermini();
+  const dvojniCard=document.getElementById('dvojniCard');
+  if(dvojni.length>0){
+    dvojniCard.style.display='block';
+    document.getElementById('dvojniTable').innerHTML=dvojni.map(d=>{
+      const p=getP(d.pacientId);
+      return`<tr>
+        <td><strong>${p?p.priimek+' '+p.ime:'?'}</strong></td>
+        <td>${p?p.zdravilo+' '+p.odmerek+'mg':'—'}</td>
+        <td>${d.termini.map(t=>{const zam=t.datum<ts;return`<span style="${zam?'color:var(--danger)':''}">${fmtDate(t.datum)}${zam?' ⚠':''}</span>`;}).join(' + ')}</td>
+        <td><button class="btn btn-primary btn-sm" onclick="pocistiDvojne('${d.pacientId}')">🧹 Počisti</button></td>
+      </tr>`;
+    }).join('');
+  }else{
+    dvojniCard.style.display='none';
+  }
   // Brez termina
   const brez=getBrezTermina();
   document.getElementById('brezTerminaTable').innerHTML=brez.length
@@ -3409,7 +3571,7 @@ document.addEventListener('keydown',e=>{
 // ============================================================
 // PWA — verzija, service worker, samodejne posodobitve
 // ============================================================
-const APP_VERSION='v4r';
+const APP_VERSION='v4t';
 (function(){
   // Prikaz verzije v glavi
   const h=document.querySelector('.header-title')||document.querySelector('header');
