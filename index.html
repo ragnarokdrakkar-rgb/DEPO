@@ -274,10 +274,11 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
     <div class="week-title" id="weekTitle"></div>
     <button class="btn btn-secondary btn-sm" onclick="changeWeek(1)">Naslednji →</button>
     <button class="btn btn-primary btn-sm" onclick="goToToday()">Danes</button>
+    <input type="text" id="terminiSearch" placeholder="🔍 Išči pacienta..." style="margin-left:auto;width:200px" oninput="renderTermini()">
   </div>
   <div class="week-grid" id="weekGrid"></div>
   <div class="card">
-    <div class="card-title">📋 Termini tega tedna</div>
+    <div class="card-title" id="terminiTableTitle">📋 Termini tega tedna</div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Datum</th><th>Ura</th><th>Pacient</th><th>Mat. indeks</th><th>Zdravilo</th><th>Tip</th><th>Status</th><th>Akcije</th></tr></thead>
@@ -324,7 +325,7 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
     <div class="card"><div class="card-title">💉 Injekcije po zdravilih</div><div id="statByMed"></div></div>
     <div class="card"><div class="card-title">📅 Zasedenost po dnevih</div><div id="statByDay"></div></div>
   </div>
-  <div class="card"><div class="card-title">📈 Injekcije po mesecih — letošnje leto</div><div id="statByMonth"></div></div>
+  <div class="card"><div class="card-title">📈 Injekcije po mesecih — zadnjih 12 mesecev</div><div id="statByMonth"></div></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
     <div class="card"><div class="card-title">⚠️ Zamujeni termini po mesecih</div><div id="statZamude"></div></div>
     <div class="card"><div class="card-title">💊 Trend porabe zalog</div><div id="statTrendZaloge"></div></div>
@@ -664,6 +665,8 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
 // ============================================================
 // HELPERS
 // ============================================================
+// HTML escape — vsa uporabniško vnesena besedila (imena, opombe...) gredo skozi to
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);}
 const PRAZNIKI=['01-01','01-02','02-08','04-27','05-01','05-02','06-25','08-15','10-31','11-01','12-25','12-26'];
 // Velikonočna nedelja — Anonymous Gregorian algorithm (Computus)
 function easterDate(year){
@@ -1810,11 +1813,11 @@ function renderDashboard(){
       const psaCell=p?`<span style="cursor:pointer" onclick="openPsaHistory('${p.id}')" title="PSA zgodovina">${psaSparkline(p,70,24)}</span> ${psaBadge(p)}`:'—';
       return`<tr style="${done?'opacity:.5':''}">
         <td><strong>${t.ura||'—'}</strong></td>
-        <td><strong>${p?p.ime+' '+p.priimek:'?'}</strong>${p&&p.telefon?` <a href="tel:${p.telefon.replace(/\s/g,'')}" style="font-size:.78rem;color:var(--info)">📞</a>`:''}</td>
+        <td><strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong>${p&&p.telefon?` <a href="tel:${p.telefon.replace(/\s/g,'')}" style="font-size:.78rem;color:var(--info)">📞</a>`:''}</td>
         <td>${isK?'—':t.zdravilo+' '+t.odmerek+'mg'}</td>
         <td>${psaCell}</td>
         <td>${isK?'<span class="badge-purple">🩺 Kontrola</span>':'<span class="badge-blue">💉 Injekcija</span>'}</td>
-        <td>${done?'<span class="badge-green">✅</span>':isK?`<button class="btn btn-success btn-sm" onclick="openPotrdiKontrolo('${t.id}')">✅ Potrdi</button>`:`<button class="btn btn-success btn-sm" onclick="openPotrdi('${t.id}')">✅ Potrdi</button> <button class="btn btn-primary btn-sm" onclick="openPrestavi('${t.id}')">📅</button>`}</td>
+        <td>${done?`<span class="badge-green">✅</span>${lahkoRazveljavi(t)?` <button class="btn btn-secondary btn-sm" onclick="razveljaviPotrditev('${t.id}')" title="Razveljavi potrditev">↩</button>`:''}`:isK?`<button class="btn btn-success btn-sm" onclick="openPotrdiKontrolo('${t.id}')">✅ Potrdi</button>`:`<button class="btn btn-success btn-sm" onclick="openPotrdi('${t.id}')">✅ Potrdi</button> <button class="btn btn-primary btn-sm" onclick="openPrestavi('${t.id}')">📅</button>`}</td>
       </tr>`;
     }).join('');
   }else{
@@ -1831,7 +1834,7 @@ function renderDashboard(){
     alertHtml+=`<div style="background:#7c1d1d18;border:1px solid #c0392b;border-radius:var(--radius);padding:12px 16px;margin-bottom:12px">
       <div style="font-size:.9rem;margin-bottom:6px"><strong style="color:#c0392b">🩸 Možen PSA relaps — preveri nujno:</strong></div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
-        ${psaAlarm.slice(0,8).map(p=>`<button class="btn btn-secondary btn-sm" onclick="openPsaHistory('${p.id}')" style="border-color:#c0392b;color:#c0392b">${p.priimek} ${p.ime} ${psaSparkline(p,50,20)}</button>`).join('')}
+        ${psaAlarm.slice(0,8).map(p=>`<button class="btn btn-secondary btn-sm" onclick="openPsaHistory('${p.id}')" style="border-color:#c0392b;color:#c0392b">${esc(p.priimek)} ${esc(p.ime)} ${psaSparkline(p,50,20)}</button>`).join('')}
         ${psaAlarm.length>8?`<span style="align-self:center;color:var(--text2);font-size:.82rem">+${psaAlarm.length-8}</span>`:''}
       </div></div>`;
   }
@@ -1850,7 +1853,7 @@ function renderDashboard(){
   // Kontrola opozorilo
   const ka=document.getElementById('kontrolaAlert');
   ka.innerHTML=brezKon.length===0?'<div class="alert-empty">Vsi ✓</div>'
-    :brezKon.slice(0,6).map(p=>`<div class="alert-item"><strong>${p.ime} ${p.priimek}</strong><br><span style="font-size:.76rem;color:var(--text2)">${fmtDate(p.zadnjaKontrola)}</span></div>`).join('')
+    :brezKon.slice(0,6).map(p=>`<div class="alert-item"><strong>${esc(p.ime)} ${esc(p.priimek)}</strong><br><span style="font-size:.76rem;color:var(--text2)">${fmtDate(p.zadnjaKontrola)}</span></div>`).join('')
      +(brezKon.length>6?`<div class="alert-item">...in še ${brezKon.length-6}</div>`:'');
 
   // Ta teden
@@ -1874,7 +1877,7 @@ function renderDashboard(){
         const isKontrola=t.tip==='kontrola';
         const alreadyDone=t.status==='opravljeno';
         return`<tr>
-          <td><strong>${p?p.ime+' '+p.priimek:'?'}</strong></td>
+          <td><strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong></td>
           <td><span style="font-family:monospace;color:var(--text2)">${p?p.maticni||'—':'—'}</span></td>
           <td>${t.zdravilo||''}${t.odmerek?' '+t.odmerek+'mg':''}</td>
           <td>${fmtDate(t.datum)}</td><td>${t.ura||'—'}</td>
@@ -1922,9 +1925,9 @@ function renderPacienti(){
         const brezKon=p.zadnjaKontrola&&(today-new Date(p.zadnjaKontrola))/86400000>183;
         const arhBadge=p.izbrisan?' <span class="badge-gray" style="margin-left:4px">📦 arhiv</span>':'';
         return`<tr${p.izbrisan?' style="opacity:.55"':''}>
-          <td><div style="display:flex;align-items:center;gap:8px"><div><strong>${p.ime} ${p.priimek}</strong> ${psaBadge(p)}${arhBadge}${p.telefon?`<br><a href="tel:${p.telefon.replace(/\s/g,'')}" style="font-size:.75rem;color:var(--info)">📞 ${p.telefon}</a>`:''}${p.opombe?`<br><span style="font-size:.75rem;color:var(--text2)">${p.opombe}</span>`:''}</div>
+          <td><div style="display:flex;align-items:center;gap:8px"><div><strong>${esc(p.ime)} ${esc(p.priimek)}</strong> ${psaBadge(p)}${arhBadge}${p.telefon?`<br><a href="tel:${p.telefon.replace(/\s/g,'')}" style="font-size:.75rem;color:var(--info)">📞 ${esc(p.telefon)}</a>`:''}${p.opombe?`<br><span style="font-size:.75rem;color:var(--text2)">${esc(p.opombe)}</span>`:''}</div>
             <span style="cursor:pointer;margin-left:auto" onclick="openPsaHistory('${p.id}')" title="PSA zgodovina">${psaSparkline(p)}</span></div></td>
-          <td><span style="font-family:monospace">${p.maticni||'—'}</span></td>
+          <td><span style="font-family:monospace">${esc(p.maticni)||"—"}</span></td>
           <td>${p.zdravilo}<br><span style="font-size:.75rem;color:var(--text2)">${p.odmerek||''}mg</span></td>
           <td>${p.interval} dni</td>
           <td>${p.zadnjaInjekcija?fmtDate(p.zadnjaInjekcija):'<span style="color:var(--text2)">—</span>'}</td>
@@ -2188,7 +2191,7 @@ function openPotrdi(terminId){
   const zk=zalogeKey(t.zdravilo||p.zdravilo,t.odmerek||p.odmerek);
   const zal=data.zaloge[zk]||0;
   document.getElementById('potrdiInfo').innerHTML=`
-    <p><strong>${p.ime} ${p.priimek}</strong> <span style="font-family:monospace;color:var(--text2);font-size:.85rem">${p.maticni||''}</span></p>
+    <p><strong>${esc(p.ime)} ${esc(p.priimek)}</strong> <span style="font-family:monospace;color:var(--text2);font-size:.85rem">${p.maticni||''}</span></p>
     <p style="color:var(--text2);font-size:.85rem;margin-top:4px">${t.zdravilo} ${p.odmerek||''}mg — razpisan: ${fmtDate(t.datum)} ${t.ura}</p>
     ${zal<=0?'<p style="color:var(--danger);font-size:.84rem;margin-top:6px;font-weight:600">⚠ Zaloga tega zdravila je 0 — poraba ne bo odšteta. Preveri zalogo v Lekarni.</p>':`<p style="color:var(--text2);font-size:.8rem;margin-top:4px">Zaloga: ${zal} → po potrditvi ${zal-1}</p>`}`;
   document.getElementById('potrdiDatum').value=todayISO();
@@ -2229,25 +2232,37 @@ function confirmInjekcija(){
   if(t.status==='opravljeno'){showToast('Že potrjeno!','error');closeModal('modalPotrdi');return;}
   const p=data.pacienti.find(x=>x.id===t.pacientId);
   t.status='opravljeno';t.opravljenoDatum=datum;t.opomba=opomba;
+  t.potrjenoAt=new Date().toISOString();
+  t.prevZadnjaInjekcija=p.zadnjaInjekcija||'';
   p.zadnjaInjekcija=datum;
 
   // Počisti morebitne DRUGE čakajoče injekcijske termine istega pacienta
   // (npr. star zamujen termin, ki ni bil potrjen) — da pacient ne šteje dvakrat.
   let pociscenih=0;
+  const preklicaniIds=[];
   data.termini.forEach(x=>{
     if(x.id!==t.id&&x.pacientId===p.id&&x.status==='caka'&&x.tip!=='kontrola'){
       x.status='preklican';x.opomba=(x.opomba?x.opomba+' · ':'')+'nadomeščen ob potrditvi';pociscenih++;
+      preklicaniIds.push(x.id);
     }
   });
+  t.preklicaniObPotrditvi=preklicaniIds;
 
   // Next termin
   const ns=calcNext(datum,p.interval);
-  if(ns)data.termini.push({id:newId('t'),pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum:ns.datum,ura:ns.ura,status:'caka',tip:'injekcija',opomba:''});
+  let newTid=null;
+  if(ns){
+    newTid=newId('t');
+    data.termini.push({id:newTid,pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum:ns.datum,ura:ns.ura,status:'caka',tip:'injekcija',opomba:''});
+  }
+  t.nextTerminId=newTid;
 
   // Zaloga — by zdravilo+odmerek
   const zk=zalogeKey(p.zdravilo,p.odmerek);
+  t.zalogaOdsteta=false;
   if((data.zaloge[zk]||0)>0){
     data.zaloge[zk]--;
+    t.zalogaOdsteta=true;
     data.zalogeLog.push({datum,zdravilo:p.zdravilo,odmerek:p.odmerek,tip:'poraba',kolicina:1,opomba:`${p.ime} ${p.priimek}`});
   }
   save();closeModal('modalPotrdi');
@@ -2255,10 +2270,69 @@ function confirmInjekcija(){
   // cloud push gre samodejno prek save()
   renderDashboard();
   // Shranim za PSA korak in print
-  const newT=ns?data.termini.find(x=>x.datum===ns.datum&&x.pacientId===p.id&&x.status==='caka'):null;
-  psaAfterInjekcija={pacientId:p.id, naslednjiTerminId:newT?newT.id:null};
+  psaAfterInjekcija={pacientId:p.id, naslednjiTerminId:newTid};
   // Ali je PSA kontrola "dolžna"? (zadnja meritev starejša od intervala)
   openPsaModal(p, datum);
+}
+
+// ============================================================
+// RAZVELJAVI POTRDITEV (24h okno)
+// ============================================================
+function lahkoRazveljavi(t){
+  if(t.status!=='opravljeno'||!t.potrjenoAt)return false;
+  const ur=(Date.now()-new Date(t.potrjenoAt).getTime())/3600000;
+  return ur<=24;
+}
+function razveljaviPotrditev(terminId){
+  const t=data.termini.find(x=>x.id===terminId);
+  if(!t||!lahkoRazveljavi(t)){showToast('Razveljavitev možna le 24h po potrditvi.','error');return;}
+  const p=getP(t.pacientId);
+  if(!p){showToast('Pacient ne obstaja!','error');return;}
+  const jeKontrola=t.tip==='kontrola';
+  if(!confirm(`Razveljaviti potrditev ${jeKontrola?'kontrole':'injekcije'} za ${p.ime} ${p.priimek} (${fmtDate(t.opravljenoDatum)})?\n\n`+
+    (jeKontrola
+      ?'Termin se vrne v "čaka". Morebitna PSA meritev ostane — izbrišeš jo lahko v PSA zgodovini.'
+      :'Termin se vrne v "čaka", zaloga se vrne, samodejno ustvarjeni naslednji termin se izbriše.\nMorebitna PSA meritev ostane — izbrišeš jo lahko v PSA zgodovini.')))return;
+
+  // 1) Vrni termin v caka
+  t.status='caka';
+  const opDatum=t.opravljenoDatum;
+  delete t.opravljenoDatum;
+  delete t.potrjenoAt;
+
+  if(jeKontrola){
+    // Vrni zadnjo kontrolo
+    if(t.prevZadnjaKontrola!==undefined){p.zadnjaKontrola=t.prevZadnjaKontrola;delete t.prevZadnjaKontrola;}
+  }else{
+    // 2) Vrni zadnjo injekcijo
+    if(t.prevZadnjaInjekcija!==undefined){p.zadnjaInjekcija=t.prevZadnjaInjekcija;delete t.prevZadnjaInjekcija;}
+    // 3) Izbriši samodejno ustvarjeni naslednji termin (če še čaka)
+    if(t.nextTerminId){
+      const nt=data.termini.find(x=>x.id===t.nextTerminId);
+      if(nt&&nt.status==='caka')data.termini=data.termini.filter(x=>x.id!==t.nextTerminId);
+      delete t.nextTerminId;
+    }
+    // 4) Vrni zalogo, če je bila odšteta
+    if(t.zalogaOdsteta){
+      const zk=zalogeKey(t.zdravilo||p.zdravilo,t.odmerek||p.odmerek);
+      data.zaloge[zk]=(data.zaloge[zk]||0)+1;
+      data.zalogeLog.push({datum:todayISO(),zdravilo:t.zdravilo||p.zdravilo,odmerek:t.odmerek||p.odmerek,tip:'prejem',kolicina:1,opomba:`Razveljavitev potrditve (${p.ime} ${p.priimek}, ${fmtDate(opDatum)})`});
+      delete t.zalogaOdsteta;
+    }
+    // 5) Obnovi termine, preklicane ob potrditvi
+    if(Array.isArray(t.preklicaniObPotrditvi)){
+      t.preklicaniObPotrditvi.forEach(pid=>{
+        const px=data.termini.find(x=>x.id===pid);
+        if(px&&px.status==='preklican'){px.status='caka';px.opomba=(px.opomba||'').replace(' · nadomeščen ob potrditvi','').replace('nadomeščen ob potrditvi','');}
+      });
+      delete t.preklicaniObPotrditvi;
+    }
+  }
+  save();
+  showToast('Potrditev razveljavljena ↩','success');
+  renderDashboard();
+  if(document.getElementById('page-termini').classList.contains('active'))renderTermini();
+  if(document.getElementById('page-pacienti').classList.contains('active'))renderPacienti();
 }
 
 // ============================================================
@@ -2271,7 +2345,7 @@ function openPsaModal(p, injDatum){
   const zadnja=psaZadnja(p);
   const nasl=psaNaslednjaKontrola(p);
   const dolzna=!zadnja||(nasl&&nasl<=injDatum);
-  let info=`<strong>${p.ime} ${p.priimek}</strong><br>`;
+  let info=`<strong>${esc(p.ime)} ${esc(p.priimek)}</strong><br>`;
   if(zadnja){
     info+=`<span style="color:var(--text2)">Zadnji PSA: <strong>${zadnja.vrednost}</strong> (${fmtDate(zadnja.datum)})</span>`;
     if(nasl)info+=`<br><span style="color:${dolzna?'var(--warn)':'var(--text2)'}">Naslednja kontrola predvidena: ${fmtDate(nasl)}${dolzna?' — zdaj je čas ⏰':''}</span>`;
@@ -2502,7 +2576,7 @@ function fillKontroloPacienti(search){
     const s=search.toLowerCase();
     list=list.filter(p=>(p.ime+' '+p.priimek).toLowerCase().includes(s)||(p.maticni||'').includes(s)||(p.priimek+' '+p.ime).toLowerCase().includes(s));
   }
-  sel.innerHTML=list.map(p=>`<option value="${p.id}">${p.priimek} ${p.ime} — ${p.maticni||'—'}</option>`).join('');
+  sel.innerHTML=list.map(p=>`<option value="${p.id}">${esc(p.priimek)} ${esc(p.ime)} — ${esc(p.maticni)||"—"}</option>`).join('');
 }
 
 function filterKontroloPacienti(val){
@@ -2527,7 +2601,7 @@ function openPotrdiKontrolo(terminId){
   if(!t||t.status==='opravljeno'){showToast('Že potrjeno!','error');return;}
   potrdiKontroloId=terminId;
   const p=data.pacienti.find(x=>x.id===t.pacientId);
-  document.getElementById('potrdiKontroloInfo').innerHTML=`<p><strong>${p.ime} ${p.priimek}</strong> — kontrola ${fmtDate(t.datum)}</p>`;
+  document.getElementById('potrdiKontroloInfo').innerHTML=`<p><strong>${esc(p.ime)} ${esc(p.priimek)}</strong> — kontrola ${fmtDate(t.datum)}</p>`;
   document.getElementById('potrdiKontroloDatum').value=todayISO();
   document.getElementById('potrdiKontroloOpomba').value='';
   openModal('modalPotrdiKontrolo');
@@ -2539,11 +2613,15 @@ function confirmKontrola(){
   const t=data.termini.find(x=>x.id===potrdiKontroloId);
   const p=data.pacienti.find(x=>x.id===t.pacientId);
   t.status='opravljeno';t.opravljenoDatum=datum;t.opomba=opomba;
+  t.potrjenoAt=new Date().toISOString();
+  t.prevZadnjaKontrola=p.zadnjaKontrola||'';
   p.zadnjaKontrola=datum;
   save();closeModal('modalPotrdiKontrolo');
   showToast('Kontrola potrjena ✓','success');
-  // cloud push gre samodejno prek save()
   renderDashboard();
+  // Kontrola pri teh pacientih JE PSA kontrola — vprašaj za vrednost
+  psaAfterInjekcija={pacientId:p.id,naslednjiTerminId:null};
+  openPsaModal(p,datum);
 }
 
 // ============================================================
@@ -2585,9 +2663,20 @@ function renderTermini(){
     </div>`;
   }).join('');
 
-  const allW=[];
-  days.forEach(d=>{data.termini.filter(t=>t.datum===fmtISO(d)).forEach(t=>allW.push(t));});
-  allW.sort((a,b)=>a.datum.localeCompare(b.datum)||(a.ura||'').localeCompare(b.ura||''));
+  const iskanje=(document.getElementById('terminiSearch')?.value||'').trim().toLowerCase();
+  const tt=document.getElementById('terminiTableTitle');
+  if(tt)tt.textContent=iskanje?'🔍 Rezultati iskanja (vsi termini)':'📋 Termini tega tedna';
+  let allW=[];
+  if(iskanje){
+    // Pri iskanju: preišči VSE termine (ne le ta teden), da najdeš pacienta kadar koli
+    const zadetiPacienti=new Set(data.pacienti.filter(p=>(p.ime+' '+p.priimek).toLowerCase().includes(iskanje)||(p.priimek+' '+p.ime).toLowerCase().includes(iskanje)||(p.maticni||'').toLowerCase().includes(iskanje)).map(p=>p.id));
+    allW=data.termini.filter(t=>zadetiPacienti.has(t.pacientId));
+    allW.sort((a,b)=>b.datum.localeCompare(a.datum)||(a.ura||'').localeCompare(b.ura||''));
+    allW=allW.slice(0,60);
+  }else{
+    days.forEach(d=>{data.termini.filter(t=>t.datum===fmtISO(d)).forEach(t=>allW.push(t));});
+    allW.sort((a,b)=>a.datum.localeCompare(b.datum)||(a.ura||'').localeCompare(b.ura||''));
+  }
   const sMap={caka:'badge-blue',opravljeno:'badge-green',preklican:'badge-red'};
   const sLbl={caka:'⏳ Čaka',opravljeno:'✅ Opravljeno',preklican:'❌ Preklicano'};
   document.getElementById('terminiTable').innerHTML=allW.length
@@ -2598,7 +2687,7 @@ function renderTermini(){
         return`<tr style="${t.status==='opravljeno'?'opacity:.6':''}${zam?';background:var(--warn-light)':''}">
           <td>${fmtDate(t.datum)}${zam?'<span class="badge-orange" style="margin-left:6px">zamuda</span>':''}</td>
           <td>${t.ura||'—'}</td>
-          <td><strong>${p?p.ime+' '+p.priimek:'?'}</strong></td>
+          <td><strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong></td>
           <td><span style="font-family:monospace">${p?p.maticni||'—':'—'}</span></td>
           <td>${t.zdravilo||''}${t.odmerek?' '+t.odmerek+'mg':''}</td>
           <td>${isK?'<span class="badge-purple">🩺 Kontrola</span>':'<span class="badge-blue">💉 Injekcija</span>'}</td>
@@ -2606,11 +2695,12 @@ function renderTermini(){
           <td style="white-space:nowrap">
             ${t.status==='caka'?(isK?`<button class="btn btn-success btn-sm" onclick="openPotrdiKontrolo('${t.id}')">✅</button>`:`<button class="btn btn-success btn-sm" onclick="openPotrdi('${t.id}')">✅</button>`):''}
             ${t.status==='caka'&&!isK?`<button class="btn btn-primary btn-sm" onclick="openPrestavi('${t.id}')" title="Prestavi">📅</button>`:''}
+            ${lahkoRazveljavi(t)?`<button class="btn btn-secondary btn-sm" onclick="razveljaviPotrditev('${t.id}')" title="Razveljavi potrditev">↩</button>`:''}
             ${!isK&&t.status!=='preklican'?`<button class="btn btn-secondary btn-sm" onclick="printSlip('${t.id}')">🖨</button>`:''}
             ${t.status==='caka'?`<button class="btn btn-danger btn-sm" onclick="preklicanTermin('${t.id}')">✕</button>`:''}
           </td></tr>`;
       }).join('')
-    :'<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text2)">Ni terminov ta teden</td></tr>';
+    :'<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text2)">'+(iskanje?'Ni terminov za to iskanje':'Ni terminov ta teden')+'</td></tr>';
 }
 function preklicanTermin(id){
   const t=data.termini.find(x=>x.id===id);
@@ -2641,7 +2731,7 @@ function printWeek(){
         <tr style="background:#eee"><th style="padding:4px 8px;text-align:left">Ura</th><th style="padding:4px 8px;text-align:left">Pacient</th><th style="padding:4px 8px;text-align:left">Mat. indeks</th><th style="padding:4px 8px;text-align:left">Zdravilo / tip</th></tr>`;
     termini.forEach(t=>{
       const p=data.pacienti.find(x=>x.id===t.pacientId);
-      html+=`<tr style="border-bottom:1px solid #ddd"><td style="padding:4px 8px">${t.ura||'—'}</td><td style="padding:4px 8px">${p?p.ime+' '+p.priimek:'?'}</td><td style="padding:4px 8px;font-family:monospace">${p?p.maticni||'—':'—'}</td><td style="padding:4px 8px">${t.tip==='kontrola'?'🩺 Kontrola':t.zdravilo+' '+t.odmerek+'mg'}</td></tr>`;
+      html+=`<tr style="border-bottom:1px solid #ddd"><td style="padding:4px 8px">${t.ura||'—'}</td><td style="padding:4px 8px">${p?esc(p.ime+' '+p.priimek):'?'}</td><td style="padding:4px 8px;font-family:monospace">${p?p.maticni||'—':'—'}</td><td style="padding:4px 8px">${t.tip==='kontrola'?'🩺 Kontrola':t.zdravilo+' '+t.odmerek+'mg'}</td></tr>`;
     });
     html+='</table></div>';
   });
@@ -2671,13 +2761,13 @@ function printSlip(terminId){
     <h2 style="font-size:1.1rem;margin-bottom:2px">${ord}</h2>
     <h3 style="font-size:1rem;color:#555;margin-bottom:12px">NAROČILNICA — DEPO INJEKCIJA</h3><hr style="margin-bottom:14px">
     <table style="font-size:.93rem;width:100%">
-      <tr><td style="padding:5px 0;color:#666;width:40%">Pacient:</td><td><strong>${p?p.ime+' '+p.priimek:'?'}</strong></td></tr>
+      <tr><td style="padding:5px 0;color:#666;width:40%">Pacient:</td><td><strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong></td></tr>
       <tr><td style="padding:5px 0;color:#666">Matični indeks:</td><td><strong style="font-family:monospace">${p?p.maticni||'—':'—'}</strong></td></tr>
       <tr><td style="padding:5px 0;color:#666">Zdravilo:</td><td><strong>${t.zdravilo||''}</strong></td></tr>
       <tr><td style="padding:5px 0;color:#666">Odmerek:</td><td>${t.odmerek||p&&p.odmerek||'—'} mg</td></tr>
       <tr><td style="padding:5px 0;color:#666">Datum:</td><td><strong>${fmtDate(t.datum)}</strong></td></tr>
       <tr><td style="padding:5px 0;color:#666">Ura:</td><td><strong>${t.ura||'—'}</strong></td></tr>
-      ${t.opomba?`<tr><td style="padding:5px 0;color:#666">Opomba:</td><td>${t.opomba}</td></tr>`:''}
+      ${t.opomba?`<tr><td style="padding:5px 0;color:#666">Opomba:</td><td>${esc(t.opomba)}</td></tr>`:''}
     </table>
     ${psaOpomnik}
     <hr style="margin-top:20px">
@@ -2820,7 +2910,7 @@ function renderLekarna(){
   document.getElementById('zalogeLog').innerHTML=log.length
     ?log.map(l=>`<tr><td>${fmtDate(l.datum)}</td><td>${l.zdravilo||''}${l.odmerek?' '+l.odmerek+'mg':''}</td>
         <td>${l.tip==='prejem'?'<span class="badge-green">📦 Prejem</span>':l.tip==='rocno'?'<span class="badge-blue">✏️ Ročno</span>':'<span class="badge-gray">💉 Poraba</span>'}</td>
-        <td>${l.tip==='prejem'?'+':l.tip==='rocno'?'=':'−'}${l.kolicina}</td><td style="color:var(--text2)">${l.opomba||''}</td></tr>`).join('')
+        <td>${l.tip==='prejem'?'+':l.tip==='rocno'?'=':'−'}${l.kolicina}</td><td style="color:var(--text2)">${esc(l.opomba||"")}</td></tr>`).join('')
     :'<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text2)">Ni vpisov</td></tr>';
 }
 
@@ -2843,7 +2933,7 @@ function openZalogaHistory(key){
     if(l.tip==='prejem'){saldo+=l.kolicina;spr=`<span style="color:var(--accent)">📦 +${l.kolicina}</span>`;}
     else if(l.tip==='poraba'){saldo-=l.kolicina;spr=`<span style="color:var(--text2)">💉 −${l.kolicina}</span>`;}
     else if(l.tip==='rocno'){saldo=l.kolicina;spr=`<span style="color:var(--info)">✏️ =${l.kolicina}</span>`;}
-    return`<tr><td>${fmtDate(l.datum)}</td><td>${spr}</td><td><strong>${saldo}</strong></td><td style="color:var(--text2);font-size:.82rem">${l.opomba||''}</td></tr>`;
+    return`<tr><td>${fmtDate(l.datum)}</td><td>${spr}</td><td><strong>${saldo}</strong></td><td style="color:var(--text2);font-size:.82rem">${esc(l.opomba||"")}</td></tr>`;
   }).reverse();
   const ujemanje=saldo===trenutna;
   document.getElementById('zalogaHistSummary').innerHTML=`
@@ -3085,7 +3175,7 @@ function openZgodovina(pacientId){
   document.getElementById('zgodovinaContent').innerHTML=
     `<p style="font-size:.82rem;color:var(--text2);margin-bottom:12px">Injekcij: <strong>${inj.length}</strong> | Kontrol: <strong>${kon.length}</strong></p>`
     +all.map(t=>`<div class="history-item${t.tip==='kontrola'?' kontrola':''}">
-      ${t.tip==='kontrola'?'🩺':'💉'} <strong>${fmtDate(t.datum)}</strong>${t.ura?' ob '+t.ura:''} — ${t.tip==='kontrola'?'Kontrola':t.zdravilo+' '+t.odmerek+'mg'}${t.opomba?` <span style="color:var(--text2)">(${t.opomba})</span>`:''}</div>`).join('')
+      ${t.tip==='kontrola'?'🩺':'💉'} <strong>${fmtDate(t.datum)}</strong>${t.ura?' ob '+t.ura:''} — ${t.tip==='kontrola'?'Kontrola':t.zdravilo+' '+t.odmerek+'mg'}${t.opomba?` <span style="color:var(--text2)">(${esc(t.opomba)})</span>`:''}</div>`).join('')
     ||(all.length===0?'<p style="color:var(--text2);font-style:italic">Ni zgodovine.</p>':'');
   openModal('modalZgodovina');
 }
@@ -3224,7 +3314,7 @@ function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
 let toastTO;
-function showToast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className='show '+type;clearTimeout(toastTO);toastTO=setTimeout(()=>t.className='',3200);}
+function showToast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className='show '+type;clearTimeout(toastTO);const dur=Math.min(8000,Math.max(3200,3200+(msg.length-40)*40));toastTO=setTimeout(()=>t.className='',dur);}
 function exportData(){const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='depo_backup_'+todayISO()+'.json';a.click();URL.revokeObjectURL(u);showToast('Backup izvožen ✓','success');}
 function importData(e){
   const f=e.target.files[0];if(!f)return;
@@ -3311,9 +3401,14 @@ function getBrezTermina(){
   });
 }
 function updateUrejanjeBadge(){
-  const n=getZamude().length+getBrezTermina().length+getDvojniTermini().length;
+  const brez=getBrezTermina().length;
+  const ostalo=getZamude().length+getDvojniTermini().length;
   const tab=document.getElementById('tabUrejanje');
-  if(tab)tab.innerHTML='🧹 Urejanje'+(n>0?` <span style="background:var(--danger);color:#fff;border-radius:10px;padding:1px 7px;font-size:.72rem;font-weight:700">${n}</span>`:'');
+  if(!tab)return;
+  let badges='';
+  if(brez>0)badges+=` <span title="Pacienti brez termina" style="background:var(--danger);color:#fff;border-radius:10px;padding:1px 7px;font-size:.72rem;font-weight:700">⚠${brez}</span>`;
+  if(ostalo>0)badges+=` <span title="Zamude in dvojni termini" style="background:#e67e22;color:#fff;border-radius:10px;padding:1px 7px;font-size:.72rem;font-weight:700">${ostalo}</span>`;
+  tab.innerHTML='🧹 Urejanje'+badges;
 }
 
 function getDvojniTermini(){
@@ -3384,7 +3479,7 @@ function renderUrejanje(){
         const naslednja=p.zadnjaInjekcija?fmtISO(addDays(new Date(p.zadnjaInjekcija),p.interval||90)):null;
         const overdue=naslednja&&naslednja<ts;
         return`<tr>
-          <td><strong>${p.priimek} ${p.ime}</strong></td>
+          <td><strong>${esc(p.priimek)} ${esc(p.ime)}</strong></td>
           <td>${p.zdravilo} ${p.odmerek}mg</td>
           <td>${p.zadnjaInjekcija?fmtDate(p.zadnjaInjekcija):'—'}</td>
           <td style="${overdue?'color:var(--danger);font-weight:700':''}">${naslednja?fmtDate(naslednja):'—'}${overdue?' ⚠':''}</td>
@@ -3444,7 +3539,7 @@ function preklicZamude(terminId){
   const t=data.termini.find(x=>x.id===terminId);
   if(!t)return;
   const p=getP(t.pacientId);
-  const choice=prompt(`Preklic termina za ${p?p.ime+' '+p.priimek:'?'}.\n\nVpiši:\n  1 = prekliči IN razpiši nov termin\n  2 = prekliči, pacient → neaktiven\n  3 = samo prekliči`,'1');
+  const choice=prompt(`Preklic termina za ${p?p.ime+" "+p.priimek:'?'}.\n\nVpiši:\n  1 = prekliči IN razpiši nov termin\n  2 = prekliči, pacient → neaktiven\n  3 = samo prekliči`,'1');
   if(choice===null)return;
   t.status='preklican';
   if(choice.trim()==='1'){
@@ -3471,7 +3566,7 @@ function openPrestavi(terminId){
   if(!t||t.status!=='caka'){showToast('Termin ni mogoče prestaviti!','error');return;}
   prestaviId=terminId;
   const p=getP(t.pacientId);
-  document.getElementById('prestaviInfo').innerHTML=`<strong>${p?p.ime+' '+p.priimek:'?'}</strong> — ${t.zdravilo} ${t.odmerek}mg<br><span style="color:var(--text2)">Trenutno: ${fmtDate(t.datum)} ${t.ura||''}</span>`;
+  document.getElementById('prestaviInfo').innerHTML=`<strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong> — ${t.zdravilo} ${t.odmerek}mg<br><span style="color:var(--text2)">Trenutno: ${fmtDate(t.datum)} ${t.ura||''}</span>`;
   // Predlagam naslednji prost slot od jutri
   const slot=getNextSlot(fmtISO(addDays(new Date(),1)));
   document.getElementById('prestaviDatum').value=slot?slot.datum:todayISO();
@@ -3548,7 +3643,7 @@ function qsFilter(q){
     const nextT=data.termini.filter(t=>t.pacientId===p.id&&t.status==='caka'&&t.tip!=='kontrola').sort((a,b)=>a.datum.localeCompare(b.datum))[0];
     const zamuda=nextT&&nextT.datum<ts;
     return`<div class="qs-item" onclick="qsOpen('${p.id}')" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:8px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-      <div><strong>${p.priimek} ${p.ime}</strong> <span style="font-family:monospace;color:var(--text2);font-size:.8rem">${p.maticni||''}</span><br>
+      <div><strong>${esc(p.priimek)} ${esc(p.ime)}</strong> <span style="font-family:monospace;color:var(--text2);font-size:.8rem">${p.maticni||''}</span><br>
         <span style="font-size:.78rem;color:var(--text2)">${p.zdravilo} ${p.odmerek}mg · int. ${p.interval}d${p.status!=='aktiven'?' · 💤 neaktiven':''}</span></div>
       <div style="text-align:right;font-size:.8rem;${zamuda?'color:var(--danger);font-weight:700':'color:var(--text2)'}">${nextT?fmtDate(nextT.datum)+(zamuda?' ⚠':''):'brez termina'}</div>
     </div>`;
@@ -3571,7 +3666,7 @@ document.addEventListener('keydown',e=>{
 // ============================================================
 // PWA — verzija, service worker, samodejne posodobitve
 // ============================================================
-const APP_VERSION='v4t';
+const APP_VERSION='v4u';
 (function(){
   // Prikaz verzije v glavi
   const h=document.querySelector('.header-title')||document.querySelector('header');
