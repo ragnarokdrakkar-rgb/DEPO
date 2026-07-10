@@ -158,13 +158,13 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
 </header>
 
 <nav>
-  <div class="tab active" onclick="showPage('dashboard')">🏠 Pregled</div>
-  <div class="tab" onclick="showPage('pacienti')">👥 Pacienti</div>
-  <div class="tab" onclick="showPage('termini')">📅 Termini</div>
-  <div class="tab" onclick="showPage('urejanje')" id="tabUrejanje">🧹 Urejanje</div>
-  <div class="tab" onclick="showPage('lekarna')">💊 Lekarna</div>
-  <div class="tab" onclick="showPage('statistika')">📊 Statistika</div>
-  <div class="tab" onclick="showPage('nastavitve')">⚙️ Nastavitve</div>
+  <div class="tab active" data-page="dashboard" onclick="showPage('dashboard')">🏠 Pregled</div>
+  <div class="tab" data-page="pacienti" onclick="showPage('pacienti')">👥 Pacienti</div>
+  <div class="tab" data-page="termini" onclick="showPage('termini')">📅 Termini</div>
+  <div class="tab" data-page="urejanje" onclick="showPage('urejanje')" id="tabUrejanje">🧹 Urejanje</div>
+  <div class="tab" data-page="lekarna" onclick="showPage('lekarna')">💊 Lekarna</div>
+  <div class="tab" data-page="statistika" onclick="showPage('statistika')">📊 Statistika</div>
+  <div class="tab" data-page="nastavitve" onclick="showPage('nastavitve')">⚙️ Nastavitve</div>
 </nav>
 
 <main>
@@ -339,9 +339,29 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
     <div class="card">
       <div class="card-title">🏥 Splošno</div>
       <div class="form-group"><label>Ime ordinacije</label><input type="text" id="setOrd" style="width:100%" placeholder="npr. Ambulanta dr. Novak"></div>
-      <div class="form-group"><label>Max pacientov na dan</label><input type="number" id="setMaxPac" min="1" max="20" value="5" style="width:100%"></div>
-      <div class="form-group"><label>Začetek ordinacije</label><input type="time" id="setStart" value="09:00" style="width:100%"></div>
-      <div class="form-group"><label>Konec ordinacije</label><input type="time" id="setEnd" value="11:00" style="width:100%"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Max pacientov na dan</label><input type="number" id="setMaxPac" min="1" max="30" value="5" style="width:100%" oninput="renderSchedulePreview()"></div>
+        <div class="form-group"><label>Trajanje termina (min)</label><input type="number" id="setSlotDuration" min="5" max="180" step="5" value="30" style="width:100%" oninput="renderSchedulePreview()"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Začetek ordinacije</label><input type="time" id="setStart" value="09:00" style="width:100%" oninput="renderSchedulePreview()"></div>
+        <div class="form-group"><label>Konec ordinacije</label><input type="time" id="setEnd" value="11:00" style="width:100%" oninput="renderSchedulePreview()"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Malica od <span style="font-weight:400">(neobvezno)</span></label><input type="time" id="setBreakStart" style="width:100%" oninput="renderSchedulePreview()"></div>
+        <div class="form-group"><label>Malica do <span style="font-weight:400">(neobvezno)</span></label><input type="time" id="setBreakEnd" style="width:100%" oninput="renderSchedulePreview()"></div>
+      </div>
+      <div class="form-group">
+        <label>Dnevi ordinacije</label>
+        <div id="setWorkDays" style="display:flex;gap:10px;flex-wrap:wrap;background:var(--surface2);padding:10px 12px;border-radius:8px">
+          <label style="margin:0"><input type="checkbox" value="1" onchange="renderSchedulePreview()"> Pon</label>
+          <label style="margin:0"><input type="checkbox" value="2" onchange="renderSchedulePreview()"> Tor</label>
+          <label style="margin:0"><input type="checkbox" value="3" onchange="renderSchedulePreview()"> Sre</label>
+          <label style="margin:0"><input type="checkbox" value="4" onchange="renderSchedulePreview()"> Čet</label>
+          <label style="margin:0"><input type="checkbox" value="5" onchange="renderSchedulePreview()"> Pet</label>
+        </div>
+      </div>
+      <div id="schedulePreview" style="background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:.82rem;color:var(--text2)"></div>
       <button class="btn btn-primary" onclick="saveSettings()">Shrani</button>
     </div>
     <div class="card">
@@ -435,19 +455,42 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
       <div class="form-group"><label>Interval pacienta (dni)</label><input type="number" id="pInterval" value="90" min="1" max="365" style="width:100%"><div style="font-size:.74rem;color:var(--text2);margin-top:2px">Privzeto iz zdravila, lahko spremeniš.</div></div>
       <div class="form-group"><label>Status</label><select id="pStatus" style="width:100%"><option value="aktiven">Aktiven</option><option value="neaktiven">Neaktiven</option></select></div>
     </div>
-    <div class="form-group">
-      <label id="pZadnjaInjekcijaLabel">Datum zadnje injekcije</label>
-      <input type="date" id="pZadnjaInjekcija" style="width:100%">
-      <div id="futureInjekcijaNote" style="font-size:.78rem;color:var(--warn);margin-top:4px;display:none">⚠ Datum je v prihodnosti — termin bo dodan, naslednji se nastavi šele po potrditvi.</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Vrsta datuma</label>
+        <select id="pDatumTip" style="width:100%" onchange="updatePacientDateMode()">
+          <option value="zadnja">Opravljena zadnja injekcija</option>
+          <option value="prviTermin">Prvi prihodnji termin</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label id="pZadnjaInjekcijaLabel">Datum zadnje injekcije</label>
+        <input type="date" id="pZadnjaInjekcija" style="width:100%" onchange="updatePacientDateMode()">
+        <div id="futureInjekcijaNote" style="font-size:.78rem;color:var(--warn);margin-top:4px;display:none"></div>
+      </div>
     </div>
     <div class="form-group"><label>Datum zadnje kontrole <span style="color:var(--text2);font-weight:400">(neobvezno)</span></label><input type="date" id="pZadnjaKontrola" style="width:100%"></div>
-    <div class="form-group">
-      <label>Interval kontrole PSA</label>
-      <select id="pPsaInterval" style="width:100%">
-        <option value="3">Vsake 3 mesece</option>
-        <option value="6" selected>Vsakih 6 mesecev</option>
-        <option value="12">Enkrat letno</option>
-      </select>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Interval kontrole PSA</label>
+        <select id="pPsaInterval" style="width:100%">
+          <option value="3">Vsake 3 mesece</option>
+          <option value="6" selected>Vsakih 6 mesecev</option>
+          <option value="12">Enkrat letno</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Vrsta zdravljenja</label>
+        <select id="pZdravljenje" style="width:100%">
+          <option value="neznano">Ni določeno</option>
+          <option value="radioterapija">Po radioterapiji ± ADT</option>
+          <option value="prostatektomija">Po radikalni prostatektomiji</option>
+          <option value="primarno_adt">Primarno hormonsko zdravljenje</option>
+          <option value="metastatska">Metastatska bolezen</option>
+          <option value="drugo">Drugo</option>
+        </select>
+        <div style="font-size:.74rem;color:var(--text2);margin-top:2px">Phoenix kriterij se uporabi samo po radioterapiji.</div>
+      </div>
     </div>
     <div class="form-group"><label>Opombe</label><input type="text" id="pOpombe" style="width:100%" placeholder="Alergije, posebnosti..."></div>
     <div class="modal-actions">
@@ -601,8 +644,12 @@ label{font-size:.85rem;font-weight:500;color:var(--text2);display:block;margin-b
       <label>Išči pacienta (ime ali mat. indeks)</label>
       <input type="text" id="kontroloSearch" style="width:100%" placeholder="npr. Novak ali 1234567" oninput="filterKontroloPacienti(this.value)">
     </div>
-    <div class="form-group"><label>Pacient</label><select id="kontroloPacient" style="width:100%" size="5" style="height:120px"></select></div>
-    <div class="form-group"><label>Datum kontrole</label><input type="date" id="kontroloDatum" style="width:100%"></div>
+    <div class="form-group"><label>Pacient</label><select id="kontroloPacient" size="5" style="width:100%;height:120px"></select></div>
+    <div class="form-row">
+      <div class="form-group"><label>Datum kontrole</label><input type="date" id="kontroloDatum" style="width:100%" onchange="suggestKontrolaTime()"></div>
+      <div class="form-group"><label>Ura</label><input type="time" id="kontroloUra" style="width:100%"></div>
+    </div>
+    <div id="kontroloSlotInfo" style="font-size:.8rem;color:var(--text2);margin-bottom:8px"></div>
     <div class="form-group"><label>Opomba <span style="color:var(--text2);font-weight:400">(neobvezno)</span></label><input type="text" id="kontroloOpomba" style="width:100%"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('modalDodajKontrolo')">Prekliči</button>
@@ -693,7 +740,13 @@ function isPraznik(d){
   return fmtISO(d)===easterMondayISO(d.getFullYear());
 }
 function isVikend(d){return d.getDay()===0||d.getDay()===6;}
-function isDelovniDan(d){return !isVikend(d)&&!isPraznik(d);}
+function getConfiguredWorkDays(){
+  try{
+    const wd=data&&data.settings&&Array.isArray(data.settings.workDays)?data.settings.workDays:null;
+    return wd&&wd.length?wd:[1,2,3,4,5];
+  }catch(e){return[1,2,3,4,5];}
+}
+function isDelovniDan(d){return getConfiguredWorkDays().includes(d.getDay())&&!isPraznik(d);}
 function addDays(date,days){const d=new Date(date);d.setDate(d.getDate()+days);return d;}
 function fmtDate(date){if(!date)return'';const d=new Date(date);return d.getDate().toString().padStart(2,'0')+'.'+(d.getMonth()+1).toString().padStart(2,'0')+'.'+d.getFullYear();}
 function fmtISO(date){if(!date)return'';const d=new Date(date);return d.getFullYear()+'-'+(d.getMonth()+1).toString().padStart(2,'0')+'-'+d.getDate().toString().padStart(2,'0');}
@@ -732,23 +785,28 @@ function psaNadir(p){
 
 // PSA doubling time (mesecev) — linearna regresija ln(PSA) proti času
 // Po PCWG3: rabi >=3 meritve, interval >=8 tednov. Vrne null sicer ali če PSA pada.
-function psaDoublingTime(p){
-  const l=psaList(p).filter(m=>m.vrednost>0);
-  if(l.length<2)return null;
+function psaDoublingInfo(p){
+  const all=psaList(p).filter(m=>m.vrednost>0&&/^\d{4}-\d{2}-\d{2}$/.test(m.datum));
+  if(all.length<3)return null;
+  const lastDate=new Date(all[all.length-1].datum);
+  const cutoff=fmtISO(addDays(lastDate,-730)); // največ zadnji 2 leti
+  const l=all.filter(m=>m.datum>=cutoff).slice(-6); // največ 6 najnovejših meritev
+  if(l.length<3)return null;
   const t0=new Date(l[0].datum).getTime();
-  const xs=l.map(m=>(new Date(m.datum).getTime()-t0)/86400000/30.44); // meseci
+  const xs=l.map(m=>(new Date(m.datum).getTime()-t0)/86400000/30.44);
   const ys=l.map(m=>Math.log(m.vrednost));
-  const spanMon=xs[xs.length-1]-xs[0];
-  if(spanMon<2)return null; // <8 tednov
+  const spanDays=(new Date(l[l.length-1].datum)-new Date(l[0].datum))/86400000;
+  if(spanDays<56)return null;
   const n=xs.length;
   const mx=xs.reduce((a,b)=>a+b,0)/n, my=ys.reduce((a,b)=>a+b,0)/n;
   let num=0,den=0;
   for(let i=0;i<n;i++){num+=(xs[i]-mx)*(ys[i]-my);den+=(xs[i]-mx)**2;}
   if(den===0)return null;
-  const slope=num/den; // ln-enot na mesec
-  if(slope<=0)return null; // PSA stabilen ali pada → ni podvojitve
-  return 0.693/slope; // meseci do podvojitve
+  const slope=num/den;
+  if(slope<=0)return null;
+  return{dt:0.693/slope,count:n,spanDays:Math.round(spanDays)};
 }
+function psaDoublingTime(p){const x=psaDoublingInfo(p);return x?x.dt:null;}
 
 // Trend: 'up' / 'down' / 'stable' / null — primerja zadnji dve
 function psaTrend(p){
@@ -764,48 +822,37 @@ function psaTrend(p){
 // level: 'ok' | 'pozor' | 'alarm'
 function psaRelaps(p){
   const l=psaList(p);
-  const out={level:'ok',razlogi:[],dt:null};
+  const out={level:'ok',razlogi:[],dt:null,dtInfo:null,phoenix:false};
   if(l.length<2)return out;
   const zadnja=l[l.length-1];
   const nadir=psaNadir(p);
-  const dt=psaDoublingTime(p);
-  out.dt=dt;
+  const dtInfo=psaDoublingInfo(p);
+  const dt=dtInfo?dtInfo.dt:null;
+  out.dt=dt;out.dtInfo=dtInfo;
 
-  // Phoenix kriterij (po obsevanju): nadir + 2 ng/mL
-  if(nadir&&zadnja.vrednost>=nadir.vrednost+2){
-    out.level='alarm';
-    out.razlogi.push(`PSA ${zadnja.vrednost} je ≥ nadir (${nadir.vrednost}) + 2 — Phoenix kriterij za biokemični relaps`);
+  // Phoenix kriterij je veljaven samo po radioterapiji.
+  if(p.zdravljenje==='radioterapija'&&nadir&&zadnja.vrednost>=nadir.vrednost+2){
+    out.level='alarm';out.phoenix=true;
+    out.razlogi.push(`PSA ${zadnja.vrednost} je ≥ nadir (${nadir.vrednost}) + 2 — Phoenix kriterij po radioterapiji`);
   }
 
-  // Podvojitev v zadnjih ~6 mesecih (uporabnikova zahteva)
+  // Hiter porast v zadnjih približno 6 mesecih je organizacijsko opozorilo, ne diagnoza.
   const pred6m=fmtISO(addDays(new Date(zadnja.datum),-190));
   const prej=l.filter(m=>m.datum>=pred6m&&m.datum<zadnja.datum);
   if(prej.length){
     const najnizjaPrej=prej.reduce((mn,m)=>m.vrednost<mn.vrednost?m:mn,prej[0]);
     if(najnizjaPrej.vrednost>0){
       const ratio=zadnja.vrednost/najnizjaPrej.vrednost;
-      if(ratio>=2){
-        out.level='alarm';
-        out.razlogi.push(`PSA se je v 6 mes. več kot podvojil (${najnizjaPrej.vrednost} → ${zadnja.vrednost})`);
-      }else if(ratio>=1.7){
-        if(out.level!=='alarm')out.level='pozor';
-        out.razlogi.push(`PSA se približuje podvojitvi v 6 mes. (${najnizjaPrej.vrednost} → ${zadnja.vrednost}, ×${ratio.toFixed(1)})`);
-      }
+      if(ratio>=2){out.level='alarm';out.razlogi.push(`PSA se je v 6 mes. več kot podvojil (${najnizjaPrej.vrednost} → ${zadnja.vrednost})`);}
+      else if(ratio>=1.7){if(out.level!=='alarm')out.level='pozor';out.razlogi.push(`PSA se približuje podvojitvi v 6 mes. (${najnizjaPrej.vrednost} → ${zadnja.vrednost}, ×${ratio.toFixed(1)})`);}
     }
   }
 
-  // Doubling time pragovi (PSADT)
   if(dt!==null){
-    if(dt<3){
-      out.level='alarm';
-      out.razlogi.push(`Čas podvojitve PSA ${dt.toFixed(1)} mes. (<3) — zelo visoko tveganje`);
-    }else if(dt<=10){
-      if(out.level!=='alarm')out.level='pozor';
-      out.razlogi.push(`Čas podvojitve PSA ${dt.toFixed(1)} mes. (≤10) — pomenljiv porast`);
-    }
+    if(dt<3){out.level='alarm';out.razlogi.push(`Čas podvojitve PSA ${dt.toFixed(1)} mes. (<3), izračun iz ${dtInfo.count} meritev`);}
+    else if(dt<=10){if(out.level!=='alarm')out.level='pozor';out.razlogi.push(`Čas podvojitve PSA ${dt.toFixed(1)} mes. (≤10), izračun iz ${dtInfo.count} meritev`);}
   }
 
-  // Trije zaporedni dvigi
   if(l.length>=4){
     const last4=l.slice(-4);
     if(last4[1].vrednost>last4[0].vrednost&&last4[2].vrednost>last4[1].vrednost&&last4[3].vrednost>last4[2].vrednost){
@@ -853,7 +900,7 @@ function psaSparkline(p,w,h){
 }
 function psaBadge(p){
   const rel=psaRelaps(p);
-  if(rel.level==='alarm')return '<span style="color:#c0392b;font-weight:700">⚠ relaps?</span>';
+  if(rel.level==='alarm')return `<span style="color:#c0392b;font-weight:700">⚠ ${rel.phoenix?'relaps?':'PSA alarm'}</span>`;
   if(rel.level==='pozor')return '<span style="color:#e67e22;font-weight:600">↑ pozor</span>';
   return '';
 }
@@ -932,6 +979,18 @@ function updateBackupWarnBanner(){
   }
 }
 
+
+function validISODate(v){if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v))return false;const d=new Date(v+'T12:00:00');return !isNaN(d)&&fmtISO(d)===v;}
+function validateBackupData(raw){
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Error('Datoteka ne vsebuje veljavnega objekta.');
+  if(raw.schemaVersion&&Number(raw.schemaVersion)>5)throw new Error('Backup je iz novejše, nepodprte verzije aplikacije.');
+  if(!Array.isArray(raw.pacienti)||!Array.isArray(raw.termini))throw new Error('Manjkata seznama pacientov ali terminov.');
+  const pids=new Set();raw.pacienti.forEach((p,i)=>{const id=String(p.id??'');if(!id)throw new Error(`Pacient #${i+1} nima ID-ja.`);if(pids.has(id))throw new Error(`Podvojen ID pacienta: ${id}`);pids.add(id);if(!p.ime||!p.priimek)throw new Error(`Pacient #${i+1} nima imena ali priimka.`);if(p.zadnjaInjekcija&&!validISODate(p.zadnjaInjekcija))throw new Error(`Neveljaven datum zadnje injekcije pri ${p.ime} ${p.priimek}.`);if(p.zadnjaKontrola&&!validISODate(p.zadnjaKontrola))throw new Error(`Neveljaven datum kontrole pri ${p.ime} ${p.priimek}.`);if(p.psa!==undefined&&!Array.isArray(p.psa))throw new Error(`PSA zgodovina pri ${p.ime} ${p.priimek} ni seznam.`);(p.psa||[]).forEach(m=>{if(!validISODate(m.datum)||!Number.isFinite(Number(m.vrednost))||Number(m.vrednost)<0)throw new Error(`Neveljavna PSA meritev pri ${p.ime} ${p.priimek}.`);});});
+  const tids=new Set(),allowed=new Set(['caka','opravljeno','preklican']);raw.termini.forEach((t,i)=>{const id=String(t.id??'');if(!id)throw new Error(`Termin #${i+1} nima ID-ja.`);if(tids.has(id))throw new Error(`Podvojen ID termina: ${id}`);tids.add(id);if(!pids.has(String(t.pacientId)))throw new Error(`Termin #${i+1} kaže na neobstoječega pacienta.`);if(!validISODate(t.datum))throw new Error(`Termin #${i+1} ima neveljaven datum.`);if(t.ura&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(t.ura))throw new Error(`Termin #${i+1} ima neveljavno uro.`);if(t.status&&!allowed.has(t.status))throw new Error(`Termin #${i+1} ima neveljaven status.`);});
+  if(raw.zaloge!==undefined&&(typeof raw.zaloge!=='object'||Array.isArray(raw.zaloge)))throw new Error('Zaloga ni veljaven objekt.');Object.values(raw.zaloge||{}).forEach(v=>{if(!Number.isFinite(Number(v)))throw new Error('Zaloga vsebuje neveljavno količino.');});
+  return JSON.parse(JSON.stringify(raw));
+}
+
 // ============================================================
 // OBNOVITEV iz ročno izbrane datoteke (zasilna pot)
 // ============================================================
@@ -950,46 +1009,23 @@ async function restoreFromFile(){
   }
 }
 function doRestoreFromText(text){
-  try{
-    const imp=JSON.parse(text);
-    if(!imp.pacienti)throw new Error('Napačen format');
-    if(!confirm(`Obnoviti ${imp.pacienti.length} pacientov iz te datoteke?\n\nTrenutni podatki bodo zamenjani.`))return;
-    data=imp;migrateLoadedData();save();renderDashboard();
-    showToast('Podatki obnovljeni ✓','success');updateBackupWarnBanner();
-  }catch(e){showToast('Napaka: '+e.message,'error');}
+  try{const imp=validateBackupData(JSON.parse(text));if(!confirm(`Obnoviti ${imp.pacienti.length} pacientov iz te datoteke?\n\nTrenutni podatki bodo najprej izvoženi in nato zamenjani.`))return;exportData('depo_pred_obnovo');data=imp;migrateLoadedData();save();renderDashboard();showToast('Podatki obnovljeni ✓','success');updateBackupWarnBanner();}
+  catch(e){showToast('Napaka: '+e.message,'error');}
 }
 function migrateLoadedData(){
+  if(!data||typeof data!=='object')throw new Error('Napačen format podatkov');
+  if(!Array.isArray(data.pacienti))data.pacienti=[];if(!Array.isArray(data.termini))data.termini=[];
   if(!data.settings)data.settings={ordinacija:'',maxPacientov:5,start:'09:00',end:'11:00',sheetsUrl:'',autoBackupEnabled:false,autoBackupMode:'',lastAutoBackup:'',backupHour:12};
-  if(data.settings.autoBackupEnabled===undefined)data.settings.autoBackupEnabled=false;
-  if(data.settings.autoBackupMode===undefined)data.settings.autoBackupMode='';
-  if(data.settings.backupHour===undefined)data.settings.backupHour=12;
-  if(!data.zdravila)data.zdravila=[];
-  if(data.zdravila.length>0&&typeof data.zdravila[0]==='string'){
-    const seen=new Set(),nl=[];
-    data.zdravila.forEach(s=>{const{ime,odmerek}=parseMed(s,'');const k=ime+'||'+odmerek;if(!seen.has(k)&&ime){seen.add(k);nl.push({ime,odmerek,enota:'mg',intervalDni:90});}});
-    data.zdravila=nl;
-  }
+  if(data.settings.autoBackupEnabled===undefined)data.settings.autoBackupEnabled=false;if(data.settings.autoBackupMode===undefined)data.settings.autoBackupMode='';if(data.settings.backupHour===undefined)data.settings.backupHour=12;
+  if(!Number.isInteger(data.settings.slotDuration)||data.settings.slotDuration<5)data.settings.slotDuration=30;if(data.settings.breakStart===undefined)data.settings.breakStart='';if(data.settings.breakEnd===undefined)data.settings.breakEnd='';if(!Array.isArray(data.settings.workDays)||!data.settings.workDays.length)data.settings.workDays=[1,2,3,4,5];
+  if(!Array.isArray(data.zdravila))data.zdravila=[];if(!data.zaloge||typeof data.zaloge!=='object')data.zaloge={};if(!Array.isArray(data.zalogeLog))data.zalogeLog=[];
+  if(data.zdravila.length>0&&typeof data.zdravila[0]==='string'){const seen=new Set(),nl=[];data.zdravila.forEach(x=>{const{ime,odmerek}=parseMed(x,'');const k=ime+'||'+odmerek;if(!seen.has(k)&&ime){seen.add(k);nl.push({ime,odmerek,enota:'mg',intervalDni:90});}});data.zdravila=nl;}
   data.zdravila.forEach(z=>{if(!z.enota)z.enota='mg';if(!z.intervalDni)z.intervalDni=90;z.ime=titleCase(z.ime||'');z.odmerek=String(z.odmerek||'').replace(',','.');});
-  if(!data.zaloge)data.zaloge={};if(!data.zalogeLog)data.zalogeLog=[];
-  data.pacienti.forEach(p=>{
-    if(p.izbrisan===undefined)p.izbrisan=false;
-    if(p.telefon===undefined)p.telefon='';
-    if(!Array.isArray(p.psa))p.psa=[];
-    if(p.psaIntervalMeseci===undefined)p.psaIntervalMeseci=6;
-    if(typeof p.id!=='number')p.id=Number(p.id)||data.nextId++;
-    const parsed=parseMed(p.zdravilo,p.odmerek);
-    p.zdravilo=parsed.ime;
-    if(parsed.odmerek)p.odmerek=parsed.odmerek;
-    else if(p.odmerek)p.odmerek=String(p.odmerek).replace(',','.');
-    if(p.zdravilo&&p.odmerek&&!data.zdravila.some(z=>z.ime===p.zdravilo&&z.odmerek===p.odmerek)){
-      data.zdravila.push({ime:p.zdravilo,odmerek:p.odmerek,enota:'mg',intervalDni:p.interval||90});
-    }
-  });
-  data.termini.forEach(t=>{const parsed=parseMed(t.zdravilo,t.odmerek);t.zdravilo=parsed.ime;if(parsed.odmerek)t.odmerek=parsed.odmerek;else if(t.odmerek)t.odmerek=String(t.odmerek).replace(',','.');});
-  const oz=data.zaloge,nz={};
-  for(const k in oz){const v=oz[k];if(typeof v!=='number'||v<0)continue;const pts=k.split('||');const ps=parseMed(pts[0],pts[1]||'');if(ps.ime&&ps.odmerek){const nk=ps.ime+'||'+ps.odmerek;nz[nk]=(nz[nk]||0)+Math.round(v);}}
-  data.zaloge=nz;
-  data.zdravila.forEach(z=>{const k=z.ime+'||'+z.odmerek;if(data.zaloge[k]===undefined)data.zaloge[k]=0;});
+  let maxId=0;data.pacienti.forEach(p=>{if(p.izbrisan===undefined)p.izbrisan=false;if(p.telefon===undefined)p.telefon='';if(!Array.isArray(p.psa))p.psa=[];if(p.psaIntervalMeseci===undefined)p.psaIntervalMeseci=6;if(!p.zdravljenje)p.zdravljenje='neznano';p.id=Number(p.id)||++maxId;maxId=Math.max(maxId,p.id);const parsed=parseMed(p.zdravilo,p.odmerek);p.zdravilo=parsed.ime;if(parsed.odmerek)p.odmerek=parsed.odmerek;else if(p.odmerek)p.odmerek=String(p.odmerek).replace(',','.');recomputePsaDerived(p);if(p.zdravilo&&p.odmerek&&!data.zdravila.some(z=>z.ime===p.zdravilo&&z.odmerek===p.odmerek))data.zdravila.push({ime:p.zdravilo,odmerek:p.odmerek,enota:'mg',intervalDni:p.interval||90});});
+  data.nextId=Math.max(Number(data.nextId)||1,maxId+1);
+  data.termini.forEach(t=>{t.id=String(t.id||newId('t'));t.pacientId=Number(t.pacientId);const parsed=parseMed(t.zdravilo,t.odmerek);t.zdravilo=parsed.ime;if(parsed.odmerek)t.odmerek=parsed.odmerek;else if(t.odmerek)t.odmerek=String(t.odmerek).replace(',','.');});
+  const nz={};for(const k in data.zaloge){const v=Number(data.zaloge[k]);if(!Number.isFinite(v))continue;const pts=k.split('||'),ps=parseMed(pts[0],pts[1]||'');if(ps.ime&&ps.odmerek){const nk=ps.ime+'||'+ps.odmerek;nz[nk]=(nz[nk]||0)+Math.round(v);}}data.zaloge=nz;
+  data.zdravila.forEach(z=>{const k=z.ime+'||'+z.odmerek;if(data.zaloge[k]===undefined)data.zaloge[k]=0;});repairLegacyControlTimes();data.schemaVersion=5;
 }
 
 async function chooseBackupDir(){
@@ -1201,19 +1237,8 @@ async function checkRestoreOnEmpty(){
     const fh=await handle.getFileHandle(latest);
     const file=await fh.getFile();
     const text=await file.text();
-    const imp=JSON.parse(text);
-    if(!imp.pacienti)throw new Error('Napačen format');
-    data=imp;
-    if(!data.settings)data.settings={ordinacija:'',maxPacientov:5,start:'09:00',end:'11:00',sheetsUrl:'',autoBackupEnabled:true,autoBackupMode:'fsa',lastAutoBackup:'',backupHour:12};
-    if(!data.zdravila)data.zdravila=[];
-    // Migracija starega formata zdravil pri restore
-    if(data.zdravila.length>0&&typeof data.zdravila[0]==='string'){
-      const seen=new Set(),nl=[];
-      data.zdravila.forEach(s=>{const{ime,odmerek}=parseMed(s,'');const k=ime+'||'+odmerek;if(!seen.has(k)&&ime){seen.add(k);nl.push({ime,odmerek,enota:'mg',intervalDni:90});}});
-      data.zdravila=nl;
-    }
-    if(!data.zaloge)data.zaloge={};if(!data.zalogeLog)data.zalogeLog=[];
-    data.pacienti.forEach(p=>{if(p.izbrisan===undefined)p.izbrisan=false;if(p.telefon===undefined)p.telefon='';if(!Array.isArray(p.psa))p.psa=[];if(p.psaIntervalMeseci===undefined)p.psaIntervalMeseci=6;if(typeof p.id!=='number')p.id=Number(p.id)||data.nextId++;});
+    const imp=validateBackupData(JSON.parse(text));
+    data=imp;migrateLoadedData();
     save();
     renderDashboard();
     showToast('Podatki obnovljeni iz backupa ✓','success');
@@ -1248,19 +1273,24 @@ async function initAutoBackup(){
 const DEFAULT_SHEETS_URL='https://script.google.com/macros/s/AKfycbwj3oqaK05vwdczEthCdvITIcsjiGBbzPKNEpJbE29KjebAmUm388O_5VZx9dBNtgUPhw/exec';
 
 let data=JSON.parse(localStorage.getItem('depo_v4')||'null')||{
-  pacienti:[],termini:[],zaloge:{},zalogeLog:[],nextId:1,
-  settings:{ordinacija:'',maxPacientov:5,start:'09:00',end:'11:00',sheetsUrl:'',
+  schemaVersion:5,pacienti:[],termini:[],zaloge:{},zalogeLog:[],nextId:1,
+  settings:{ordinacija:'',maxPacientov:5,start:'09:00',end:'11:00',slotDuration:30,breakStart:'',breakEnd:'',workDays:[1,2,3,4,5],sheetsUrl:'',
     autoBackupEnabled:false,autoBackupMode:'',lastAutoBackup:'',backupHour:12},
   zdravila:[
-    {ime:'Risperdal Consta',odmerek:'25',enota:'mg',intervalDni:14},
-    {ime:'Abilify Maintena',odmerek:'400',enota:'mg',intervalDni:28},
-    {ime:'Xeplion',odmerek:'100',enota:'mg',intervalDni:28},
-    {ime:'Trevicta',odmerek:'350',enota:'mg',intervalDni:90},
-    {ime:'Zypadhera',odmerek:'300',enota:'mg',intervalDni:14}
+    {ime:'Eligard',odmerek:'22.5',enota:'mg',intervalDni:90},
+    {ime:'Eligard',odmerek:'45',enota:'mg',intervalDni:180},
+    {ime:'Dipherelin',odmerek:'11.25',enota:'mg',intervalDni:90},
+    {ime:'Pamorelin',odmerek:'22.5',enota:'mg',intervalDni:180},
+    {ime:'Firmagon',odmerek:'80',enota:'mg',intervalDni:30}
   ]
 };
 if(!data.settings)data.settings={ordinacija:'',maxPacientov:5,start:'09:00',end:'11:00',sheetsUrl:''};
 if(!data.settings.sheetsUrl)data.settings.sheetsUrl='';
+if(!data.schemaVersion)data.schemaVersion=5;else data.schemaVersion=5;
+if(!Number.isInteger(data.settings.slotDuration)||data.settings.slotDuration<5)data.settings.slotDuration=30;
+if(data.settings.breakStart===undefined)data.settings.breakStart='';
+if(data.settings.breakEnd===undefined)data.settings.breakEnd='';
+if(!Array.isArray(data.settings.workDays)||!data.settings.workDays.length)data.settings.workDays=[1,2,3,4,5];
 // Če URL ni shranjen (npr. po clear cookies), uporabi vdelanega iz kode
 if(!data.settings.sheetsUrl&&DEFAULT_SHEETS_URL)data.settings.sheetsUrl=DEFAULT_SHEETS_URL;
 if(data.settings.lastCloudSync===undefined)data.settings.lastCloudSync='';
@@ -1308,7 +1338,7 @@ data.pacienti.forEach(p=>{
   if(p.izbrisan===undefined)p.izbrisan=false;
   if(p.telefon===undefined)p.telefon='';
   if(!Array.isArray(p.psa))p.psa=[];
-  if(p.psaIntervalMeseci===undefined)p.psaIntervalMeseci=6;
+  if(p.psaIntervalMeseci===undefined)p.psaIntervalMeseci=6;if(!p.zdravljenje)p.zdravljenje='neznano';
   if(typeof p.id!=='number')p.id=Number(p.id)||data.nextId++;
   const parsed=parseMed(p.zdravilo,p.odmerek);
   p.zdravilo=parsed.ime;
@@ -1347,7 +1377,7 @@ const oldZaloge=data.zaloge;
 const newZaloge={};
 for(const k in oldZaloge){
   const v=oldZaloge[k];
-  if(typeof v!=='number'||v<0)continue;
+  if(typeof v!=='number'||!Number.isFinite(v))continue;
   const parts=k.split('||');
   const parsed=parseMed(parts[0],parts[1]||'');
   if(parsed.ime&&parsed.odmerek){
@@ -1411,51 +1441,79 @@ function findZByKey(key){const[i,o]=key.split('||');return findZ(i,o);}
 function pacientiList(includeHidden){return includeHidden?data.pacienti:data.pacienti.filter(p=>!p.izbrisan);}
 
 // ============================================================
-// SLOT LOGIC — ure okrogle na 30 min (s fallbackom na 15/5)
+// SLOT LOGIC — deterministični termini, malica in zaščita pred dvojnimi urami
 // ============================================================
-function buildDailySlots(){
-  const max=data.settings.maxPacientov||5;
-  const[sh,sm]=(data.settings.start||'09:00').split(':').map(Number);
-  const[eh,em]=(data.settings.end||'11:00').split(':').map(Number);
-  const startM=sh*60+sm,endM=eh*60+em;
-  const totalMins=endM-startM;
-  if(totalMins<=0||max<1)return[startM];
-  // Poskusi najprej 30min granulariteto, potem 15, potem 5, drugače brez zaokroževanja
-  for(const g of [30,15,5]){
-    const slots=[];
-    for(let i=0;i<max;i++){
-      const raw=startM+(totalMins/max)*i;
-      slots.push(Math.round(raw/g)*g);
-    }
-    const unique=[...new Set(slots)];
-    if(unique.length===max&&unique[unique.length-1]<endM)return unique;
+function timeToMin(v){if(!/^\d{2}:\d{2}$/.test(v||''))return null;const[h,m]=v.split(':').map(Number);return h*60+m;}
+function minToTime(v){return Math.floor(v/60).toString().padStart(2,'0')+':'+(v%60).toString().padStart(2,'0');}
+function getScheduleConfig(fromForm=false){
+  if(fromForm){
+    const checked=[...document.querySelectorAll('#setWorkDays input:checked')].map(x=>Number(x.value));
+    return{maxPacientov:parseInt(document.getElementById('setMaxPac').value)||0,start:document.getElementById('setStart').value,end:document.getElementById('setEnd').value,slotDuration:parseInt(document.getElementById('setSlotDuration').value)||0,breakStart:document.getElementById('setBreakStart').value,breakEnd:document.getElementById('setBreakEnd').value,workDays:checked};
   }
-  // Fallback: brez zaokroževanja
-  const slots=[];
-  for(let i=0;i<max;i++)slots.push(Math.floor(startM+(totalMins/max)*i));
+  const x=data.settings;
+  return{maxPacientov:x.maxPacientov||5,start:x.start||'09:00',end:x.end||'11:00',slotDuration:x.slotDuration||30,breakStart:x.breakStart||'',breakEnd:x.breakEnd||'',workDays:Array.isArray(x.workDays)&&x.workDays.length?x.workDays:[1,2,3,4,5]};
+}
+function buildDailySlots(cfg){
+  cfg=cfg||getScheduleConfig();
+  const startM=timeToMin(cfg.start),endM=timeToMin(cfg.end),dur=Number(cfg.slotDuration);
+  if(startM===null||endM===null||endM<=startM||!Number.isFinite(dur)||dur<5)return[];
+  const bs=timeToMin(cfg.breakStart),be=timeToMin(cfg.breakEnd);
+  const hasBreak=bs!==null&&be!==null&&be>bs;
+  const slots=[];const cap=Number.isFinite(Number(cfg.maxPacientov))&&Number(cfg.maxPacientov)>0?Number(cfg.maxPacientov):999;
+  for(let t=startM;t+dur<=endM;t+=dur){
+    if(hasBreak&&t<be&&t+dur>bs)continue;
+    slots.push(t);
+    if(slots.length>=cap)break;
+  }
   return slots;
 }
-
-function getNextSlot(fromDateISO){
+function terminUsesCapacity(t){return t&&t.status!=='preklican';}
+function getDayAppointments(date,excludeTerminId){return data.termini.filter(t=>t.datum===date&&terminUsesCapacity(t)&&t.id!==excludeTerminId);}
+function getDayCapacityInfo(date,excludeTerminId){
   const slots=buildDailySlots();
-  let d=new Date(fromDateISO),tries=0;
-  while(tries<90){
+  const appts=getDayAppointments(date,excludeTerminId);
+  const occupied=new Set(appts.map(t=>t.ura).filter(Boolean));
+  const free=slots.filter(m=>!occupied.has(minToTime(m)));
+  const effectiveFree=Math.max(0,Math.min(free.length,slots.length-appts.length));
+  return{slots,appts,occupied,free:free.slice(0,effectiveFree),capacity:slots.length};
+}
+function validateAppointmentSlot(date,time,excludeTerminId){
+  const d=new Date(date+'T12:00:00');
+  if(!date||isNaN(d))return{ok:false,msg:'Datum ni veljaven.'};
+  if(!isDelovniDan(d))return{ok:false,msg:'Izbrani datum ni aktiven delovni dan ali je praznik.'};
+  const info=getDayCapacityInfo(date,excludeTerminId);
+  if(!info.capacity)return{ok:false,msg:'Za ta urnik ni mogoče ustvariti nobenega termina.'};
+  if(info.appts.length>=info.capacity)return{ok:false,msg:`Dan je poln (${info.appts.length}/${info.capacity}).`};
+  if(!time)return{ok:false,msg:'Izberi uro termina.'};
+  const allowed=info.slots.map(minToTime);
+  if(!allowed.includes(time))return{ok:false,msg:'Ura ni med dovoljenimi termini glede na urnik in malico.'};
+  if(info.occupied.has(time))return{ok:false,msg:'Ta ura je že zasedena.'};
+  return{ok:true,msg:`Prosto (${info.appts.length}/${info.capacity} zasedeno).`};
+}
+function getNextSlot(fromDateISO,options){
+  options=options||{};
+  const maxDays=Number(options.maxDays||365);
+  const excludeTerminId=options.excludeTerminId||null;
+  let d=new Date(fromDateISO+'T12:00:00'),tries=0;
+  if(isNaN(d))return null;
+  while(tries<maxDays){
     if(isDelovniDan(d)){
-      const ds=fmtISO(d);
-      const ex=data.termini.filter(t=>t.datum===ds&&t.status!=='preklican'&&t.tip!=='kontrola');
-      if(ex.length<slots.length){
-        const slotMin=slots[ex.length];
-        const h=Math.floor(slotMin/60).toString().padStart(2,'0');
-        const m=(slotMin%60).toString().padStart(2,'0');
-        return{datum:ds,ura:h+':'+m};
-      }
+      const ds=fmtISO(d);const info=getDayCapacityInfo(ds,excludeTerminId);
+      if(info.free.length)return{datum:ds,ura:minToTime(info.free[0])};
     }
     d=addDays(d,1);tries++;
   }
   return null;
 }
-
-function calcNext(zadnja,interval){return getNextSlot(fmtISO(addDays(new Date(zadnja),interval)));}
+function calcNext(zadnja,interval){return getNextSlot(fmtISO(addDays(new Date(zadnja+'T12:00:00'),interval)),{maxDays:365});}
+function repairLegacyControlTimes(){
+  let changed=0;
+  data.termini.filter(t=>t.status==='caka'&&t.tip==='kontrola'&&!t.ura).sort((a,b)=>a.datum.localeCompare(b.datum)).forEach(t=>{
+    const slot=getNextSlot(t.datum,{maxDays:365,excludeTerminId:t.id});
+    if(slot){t.datum=slot.datum;t.ura=slot.ura;t.opomba=(t.opomba?t.opomba+' · ':'')+'ura dodeljena ob nadgradnji';changed++;}
+  });
+  return changed;
+}
 
 // ============================================================
 // GOOGLE SHEETS SYNC
@@ -1755,15 +1813,12 @@ async function cloudDiagnostika(){
 // ============================================================
 function showPage(name){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  document.getElementById('page-'+name).classList.add('active');
-  ['dashboard','pacienti','termini','lekarna','statistika','nastavitve'].forEach((n,i)=>{
-    if(n===name)document.querySelectorAll('.tab')[i].classList.add('active');
-  });
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.page===name));
+  const page=document.getElementById('page-'+name);if(!page)return;page.classList.add('active');
   if(name==='dashboard')renderDashboard();
   if(name==='pacienti')renderPacienti();
   if(name==='termini')renderTermini();
-  if(name==='lekarna'){setLekarnaPeriod(lekarnaPeriod);}
+  if(name==='lekarna')setLekarnaPeriod(lekarnaPeriod);
   if(name==='statistika')renderStatistika();
   if(name==='urejanje')renderUrejanje();
   if(name==='nastavitve')renderNastavitve();
@@ -1812,9 +1867,9 @@ function renderDashboard(){
       const done=t.status==='opravljeno';
       const psaCell=p?`<span style="cursor:pointer" onclick="openPsaHistory('${p.id}')" title="PSA zgodovina">${psaSparkline(p,70,24)}</span> ${psaBadge(p)}`:'—';
       return`<tr style="${done?'opacity:.5':''}">
-        <td><strong>${t.ura||'—'}</strong></td>
-        <td><strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong>${p&&p.telefon?` <a href="tel:${p.telefon.replace(/\s/g,'')}" style="font-size:.78rem;color:var(--info)">📞</a>`:''}</td>
-        <td>${isK?'—':t.zdravilo+' '+t.odmerek+'mg'}</td>
+        <td><strong>${esc(t.ura||'—')}</strong></td>
+        <td><strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong>${p&&p.telefon?` <a href="tel:${String(p.telefon||'').replace(/[^\d+]/g,'')}" style="font-size:.78rem;color:var(--info)">📞</a>`:''}</td>
+        <td>${isK?'—':esc((t.zdravilo||'')+' '+(t.odmerek||'')+'mg')}</td>
         <td>${psaCell}</td>
         <td>${isK?'<span class="badge-purple">🩺 Kontrola</span>':'<span class="badge-blue">💉 Injekcija</span>'}</td>
         <td>${done?`<span class="badge-green">✅</span>${lahkoRazveljavi(t)?` <button class="btn btn-secondary btn-sm" onclick="razveljaviPotrditev('${t.id}')" title="Razveljavi potrditev">↩</button>`:''}`:isK?`<button class="btn btn-success btn-sm" onclick="openPotrdiKontrolo('${t.id}')">✅ Potrdi</button>`:`<button class="btn btn-success btn-sm" onclick="openPotrdi('${t.id}')">✅ Potrdi</button> <button class="btn btn-primary btn-sm" onclick="openPrestavi('${t.id}')">📅</button>`}</td>
@@ -1832,7 +1887,7 @@ function renderDashboard(){
   let alertHtml='';
   if(psaAlarm.length>0){
     alertHtml+=`<div style="background:#7c1d1d18;border:1px solid #c0392b;border-radius:var(--radius);padding:12px 16px;margin-bottom:12px">
-      <div style="font-size:.9rem;margin-bottom:6px"><strong style="color:#c0392b">🩸 Možen PSA relaps — preveri nujno:</strong></div>
+      <div style="font-size:.9rem;margin-bottom:6px"><strong style="color:#c0392b">🩸 PSA opozorilo — preveri:</strong></div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
         ${psaAlarm.slice(0,8).map(p=>`<button class="btn btn-secondary btn-sm" onclick="openPsaHistory('${p.id}')" style="border-color:#c0392b;color:#c0392b">${esc(p.priimek)} ${esc(p.ime)} ${psaSparkline(p,50,20)}</button>`).join('')}
         ${psaAlarm.length>8?`<span style="align-self:center;color:var(--text2);font-size:.82rem">+${psaAlarm.length-8}</span>`:''}
@@ -1863,12 +1918,12 @@ function renderDashboard(){
     :teden.sort((a,b)=>a.datum.localeCompare(b.datum)).slice(0,6).map(t=>{
         const p=data.pacienti.find(x=>x.id===t.pacientId);
         const icon=t.tip==='kontrola'?'🩺':'💉';
-        return`<div class="alert-item">${icon} <strong>${p?p.priimek:'?'}</strong> — ${fmtDate(t.datum)} ${t.ura}</div>`;
+        return`<div class="alert-item">${icon} <strong>${p?esc(p.priimek):'?'}</strong> — ${fmtDate(t.datum)} ${esc(t.ura||'')}</div>`;
       }).join('');
 
   // Zaloge
   document.getElementById('zalogeAlert').innerHTML=lowStock.length===0?'<div class="alert-empty">Zadostne ✓</div>'
-    :lowStock.map(k=>{const[z,o]=k.split('||');return`<div class="alert-item"><strong>${z}</strong>${o?' '+o+'mg':''}<br><span style="font-size:.76rem;color:var(--danger)">${data.zaloge[k]||0} enot</span></div>`;}).join('');
+    :lowStock.map(k=>{const[z,o]=k.split('||');return`<div class="alert-item"><strong>${esc(z)}</strong>${o?' '+esc(o)+'mg':''}<br><span style="font-size:.76rem;color:var(--danger)">${Number(data.zaloge[k])||0} enot</span></div>`;}).join('');
 
   // Upcoming table — FIX: show status, disable confirm if already done
   document.getElementById('upcomingTable').innerHTML=upcoming.length
@@ -1878,9 +1933,9 @@ function renderDashboard(){
         const alreadyDone=t.status==='opravljeno';
         return`<tr>
           <td><strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong></td>
-          <td><span style="font-family:monospace;color:var(--text2)">${p?p.maticni||'—':'—'}</span></td>
-          <td>${t.zdravilo||''}${t.odmerek?' '+t.odmerek+'mg':''}</td>
-          <td>${fmtDate(t.datum)}</td><td>${t.ura||'—'}</td>
+          <td><span style="font-family:monospace;color:var(--text2)">${p?esc(p.maticni||'—'):'—'}</span></td>
+          <td>${esc(t.zdravilo||'')}${t.odmerek?' '+esc(t.odmerek)+'mg':''}</td>
+          <td>${fmtDate(t.datum)}</td><td>${esc(t.ura||'—')}</td>
           <td>${isKontrola?'<span class="badge-purple">🩺 Kontrola</span>':'<span class="badge-blue">💉 Injekcija</span>'}</td>
           <td style="white-space:nowrap">
             ${alreadyDone
@@ -1904,7 +1959,7 @@ function renderPacienti(){
   const cur=sel.value;
   sel.innerHTML='<option value="">Vsa zdravila</option>'+getZ().slice().sort((a,b)=>(a.ime+a.odmerek).localeCompare(b.ime+b.odmerek)).map(z=>{
     const k=z.ime+'||'+z.odmerek;
-    return`<option value="${k}"${cur===k?' selected':''}>${zLabel(z)}</option>`;
+    return`<option value="${esc(k)}"${cur===k?' selected':''}>${esc(zLabel(z))}</option>`;
   }).join('');
   let list=pacientiList(pF.showHidden);
   if(pF.search)list=list.filter(p=>(p.ime+' '+p.priimek+' '+(p.maticni||'')).toLowerCase().includes(pF.search.toLowerCase()));
@@ -1925,16 +1980,16 @@ function renderPacienti(){
         const brezKon=p.zadnjaKontrola&&(today-new Date(p.zadnjaKontrola))/86400000>183;
         const arhBadge=p.izbrisan?' <span class="badge-gray" style="margin-left:4px">📦 arhiv</span>':'';
         return`<tr${p.izbrisan?' style="opacity:.55"':''}>
-          <td><div style="display:flex;align-items:center;gap:8px"><div><strong>${esc(p.ime)} ${esc(p.priimek)}</strong> ${psaBadge(p)}${arhBadge}${p.telefon?`<br><a href="tel:${p.telefon.replace(/\s/g,'')}" style="font-size:.75rem;color:var(--info)">📞 ${esc(p.telefon)}</a>`:''}${p.opombe?`<br><span style="font-size:.75rem;color:var(--text2)">${esc(p.opombe)}</span>`:''}</div>
+          <td><div style="display:flex;align-items:center;gap:8px"><div><strong>${esc(p.ime)} ${esc(p.priimek)}</strong> ${psaBadge(p)}${arhBadge}${p.telefon?`<br><a href="tel:${String(p.telefon||'').replace(/[^\d+]/g,'')}" style="font-size:.75rem;color:var(--info)">📞 ${esc(p.telefon)}</a>`:''}${p.opombe?`<br><span style="font-size:.75rem;color:var(--text2)">${esc(p.opombe)}</span>`:''}</div>
             <span style="cursor:pointer;margin-left:auto" onclick="openPsaHistory('${p.id}')" title="PSA zgodovina">${psaSparkline(p)}</span></div></td>
           <td><span style="font-family:monospace">${esc(p.maticni)||"—"}</span></td>
-          <td>${p.zdravilo}<br><span style="font-size:.75rem;color:var(--text2)">${p.odmerek||''}mg</span></td>
+          <td>${esc(p.zdravilo||'')}<br><span style="font-size:.75rem;color:var(--text2)">${esc(p.odmerek||'')}mg</span></td>
           <td>${p.interval} dni</td>
           <td>${p.zadnjaInjekcija?fmtDate(p.zadnjaInjekcija):'<span style="color:var(--text2)">—</span>'}</td>
-          <td>${nextT?`<strong>${fmtDate(nextT.datum)}</strong> ${nextT.ura}${p.telefon?' '+smsBtn(p,nextT):''}`:'<span style="color:var(--text2)">—</span>'}</td>
+          <td>${nextT?`<strong>${fmtDate(nextT.datum)}</strong> ${esc(nextT.ura||'')}${p.telefon?' '+smsBtn(p,nextT):''}`:'<span style="color:var(--text2)">—</span>'}</td>
           <td>${nextK?`<strong>${fmtDate(nextK.datum)}</strong>`:p.zadnjaKontrola?fmtDate(p.zadnjaKontrola):'<span style="color:var(--text2)">—</span>'}
             ${brezKon&&p.status==='aktiven'?'<div class="kontrola-warn">⚠ Potrebuje!</div>':''}</td>
-          <td><span class="badge-${p.status==='aktiven'?'green':'gray'}">${p.status}</span></td>
+          <td><span class="badge-${p.status==='aktiven'?'green':'gray'}">${esc(p.status||'')}</span></td>
           <td style="white-space:nowrap">
             ${p.izbrisan
               ?`<button class="btn btn-success btn-sm" onclick="restorePacient('${p.id}')" title="Obnovi">↩️ Obnovi</button>`
@@ -1965,7 +2020,7 @@ function fillZKeySel(selId,curIme,curOdmerek){
     .map(z=>{
       const key=z.ime+'||'+z.odmerek;
       const isCur=z.ime===curIme&&String(z.odmerek)===String(curOdmerek);
-      return`<option value="${key}"${isCur?' selected':''}>${zLabel(z)} — privzeto ${z.intervalDni} dni</option>`;
+      return`<option value="${esc(key)}"${isCur?' selected':''}>${esc(zLabel(z))} — privzeto ${Number(z.intervalDni)||0} dni</option>`;
     }).join('');
   sel.innerHTML='<option value="">— izberi zdravilo —</option>'+opts+'<option value="__novo__">+ Novo zdravilo...</option>';
 }
@@ -1987,6 +2042,34 @@ function onPZdraviloChange(){
   }
 }
 
+function updatePacientDateMode(){
+  const tip=document.getElementById('pDatumTip').value;
+  const dat=document.getElementById('pZadnjaInjekcija').value;
+  const label=document.getElementById('pZadnjaInjekcijaLabel');
+  const note=document.getElementById('futureInjekcijaNote');
+  label.textContent=tip==='prviTermin'?'Želeni datum prvega termina':'Datum zadnje opravljene injekcije';
+  if(!dat){note.style.display='none';note.textContent='';return;}
+  if(tip==='zadnja'&&dat>todayISO()){
+    note.style.display='block';note.textContent='⚠ Opravljena injekcija ne more biti v prihodnosti.';
+  }else if(tip==='prviTermin'&&dat<todayISO()){
+    note.style.display='block';note.textContent='⚠ Prihodnji termin ne more biti v preteklosti.';
+  }else if(tip==='prviTermin'){
+    note.style.display='block';note.style.color='var(--text2)';note.textContent='Termin bo dobil prvo prosto uro na ta dan; če je dan poln, prvi naslednji prost termin.';
+  }else{
+    note.style.display='none';note.textContent='';note.style.color='var(--warn)';
+  }
+}
+function getPendingInjections(pacientId){return data.termini.filter(t=>t.pacientId===Number(pacientId)&&t.status==='caka'&&t.tip!=='kontrola');}
+function reschedulePendingInjection(p,fromDate,reason){
+  const pending=getPendingInjections(p.id);
+  const snapshots=pending.map(t=>({t,status:t.status,opomba:t.opomba}));
+  pending.forEach(t=>t.status='preklican');
+  const slot=getNextSlot(fromDate,{maxDays:365});
+  if(!slot){snapshots.forEach(x=>{x.t.status=x.status;x.t.opomba=x.opomba;});return null;}
+  snapshots.forEach(x=>{x.t.status='preklican';x.t.opomba=(x.opomba?x.opomba+' · ':'')+(reason||'ponovno izračunan termin');});
+  const nt={id:newId('t'),pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum:slot.datum,ura:slot.ura,status:'caka',tip:'injekcija',opomba:reason||''};
+  data.termini.push(nt);return nt;
+}
 function openAddPacient(){
   editingId=null;
   document.getElementById('modalPacientTitle').textContent='Dodaj pacienta';
@@ -1995,161 +2078,111 @@ function openAddPacient(){
   document.getElementById('pNovoZdraviloInterval').value=90;
   document.getElementById('pInterval').value=90;
   document.getElementById('pStatus').value='aktiven';
-  document.getElementById('pZadnjaInjekcija').value=todayISO();
+  document.getElementById('pDatumTip').value='zadnja';
+  document.getElementById('pZadnjaInjekcija').value='';
   document.getElementById('pZadnjaKontrola').value='';
   document.getElementById('pPsaInterval').value=6;
+  document.getElementById('pZdravljenje').value='neznano';
   document.getElementById('novoZdraviloGroup').style.display='none';
-  document.getElementById('futureInjekcijaNote').style.display='none';
   fillZKeySel('pZdraviloKey','','');
+  updatePacientDateMode();
   openModal('modalPacient');
 }
 function openEditPacient(id){
-  editingId=Number(id);
-  const p=getP(editingId);
+  editingId=Number(id);const p=getP(editingId);
   if(!p){showToast('Pacient ne obstaja!','error');return;}
   document.getElementById('modalPacientTitle').textContent='Uredi pacienta';
   document.getElementById('btnBrisiPacienta').style.display='inline-flex';
-  document.getElementById('pIme').value=p.ime||'';
-  document.getElementById('pPriimek').value=p.priimek||'';
-  document.getElementById('pMaticni').value=p.maticni||'';
-  document.getElementById('pTelefon').value=p.telefon||'';
-  document.getElementById('pOpombe').value=p.opombe||'';
-  document.getElementById('pInterval').value=p.interval||90;
+  document.getElementById('pIme').value=p.ime||'';document.getElementById('pPriimek').value=p.priimek||'';
+  document.getElementById('pMaticni').value=p.maticni||'';document.getElementById('pTelefon').value=p.telefon||'';
+  document.getElementById('pOpombe').value=p.opombe||'';document.getElementById('pInterval').value=p.interval||90;
   document.getElementById('pStatus').value=p.status||'aktiven';
-  document.getElementById('pZadnjaInjekcija').value=p.zadnjaInjekcija||'';
+  const pending=getPendingInjections(p.id).sort((a,b)=>a.datum.localeCompare(b.datum)||(a.ura||'').localeCompare(b.ura||''))[0];
+  document.getElementById('pDatumTip').value=p.zadnjaInjekcija?'zadnja':'prviTermin';
+  document.getElementById('pZadnjaInjekcija').value=p.zadnjaInjekcija||(pending?pending.datum:'');
   document.getElementById('pZadnjaKontrola').value=p.zadnjaKontrola||'';
   document.getElementById('pPsaInterval').value=p.psaIntervalMeseci||6;
-  document.getElementById('novoZdraviloGroup').style.display='none';
-  document.getElementById('futureInjekcijaNote').style.display='none';
-  fillZKeySel('pZdraviloKey',p.zdravilo,p.odmerek);
-  openModal('modalPacient');
+  document.getElementById('pZdravljenje').value=p.zdravljenje||'neznano';
+  document.getElementById('novoZdraviloGroup').style.display='none';fillZKeySel('pZdraviloKey',p.zdravilo,p.odmerek);
+  updatePacientDateMode();openModal('modalPacient');
 }
-
-// Show warning if date is in future
-document.getElementById('pZadnjaInjekcija').addEventListener('change',function(){
-  document.getElementById('futureInjekcijaNote').style.display=this.value>todayISO()?'block':'none';
-});
-
 function savePacient(){
-  const ime=document.getElementById('pIme').value.trim();
-  const priimek=document.getElementById('pPriimek').value.trim();
+  const ime=document.getElementById('pIme').value.trim(),priimek=document.getElementById('pPriimek').value.trim();
   if(!ime||!priimek){showToast('Vnesite ime in priimek!','error');return;}
-  const zdrKey=document.getElementById('pZdraviloKey').value;
-  let zdravilo='',odmerek='';
+  const zdrKey=document.getElementById('pZdraviloKey').value;let zdravilo='',odmerek='';
   if(zdrKey==='__novo__'){
     const nIme=titleCase(document.getElementById('pNovoZdraviloIme').value.trim());
-    const nOdmerekRaw=document.getElementById('pNovoZdraviloOdmerek').value.trim().replace(',','.');
-    const nOdmerekNum=parseFloat(nOdmerekRaw);
-    if(!nIme){showToast('Vnesite ime novega zdravila!','error');return;}
-    if(!nOdmerekRaw||isNaN(nOdmerekNum)||nOdmerekNum<=0){showToast('Vnesite odmerek (mg) za novo zdravilo!','error');return;}
+    const raw=document.getElementById('pNovoZdraviloOdmerek').value.trim().replace(',','.');const num=parseFloat(raw);
     const nInterval=parseInt(document.getElementById('pNovoZdraviloInterval').value)||90;
+    if(!nIme){showToast('Vnesite ime novega zdravila!','error');return;}
+    if(!raw||isNaN(num)||num<=0){showToast('Vnesite odmerek (mg) za novo zdravilo!','error');return;}
     if(nInterval<1||nInterval>365){showToast('Privzeti interval naj bo 1–365 dni!','error');return;}
-    zdravilo=nIme;
-    odmerek=String(nOdmerekNum);
-    if(!findZ(zdravilo,odmerek)){
-      data.zdravila.push({ime:zdravilo,odmerek,enota:'mg',intervalDni:nInterval});
-    }
-    const zk=zdravilo+'||'+odmerek;
-    if(data.zaloge[zk]===undefined)data.zaloge[zk]=0;
-  }else if(!zdrKey){
-    showToast('Izberite zdravilo!','error');return;
+    zdravilo=nIme;odmerek=String(num);
+    if(!findZ(zdravilo,odmerek))data.zdravila.push({ime:zdravilo,odmerek,enota:'mg',intervalDni:nInterval});
   }else{
-    const z=findZByKey(zdrKey);
-    if(!z){showToast('Zdravilo ne obstaja!','error');return;}
-    zdravilo=z.ime;odmerek=z.odmerek;
+    const z=findZByKey(zdrKey);if(!z){showToast('Izberite zdravilo!','error');return;}zdravilo=z.ime;odmerek=z.odmerek;
   }
   const intervalNum=parseInt(document.getElementById('pInterval').value);
   if(isNaN(intervalNum)||intervalNum<1||intervalNum>365){showToast('Interval pacienta mora biti 1–365 dni!','error');return;}
   const maticni=document.getElementById('pMaticni').value.trim();
-  if(maticni&&!/^[A-Za-z0-9\-\/]{3,20}$/.test(maticni)){
-    showToast('Matični indeks naj bo 3–20 znakov (črke, številke, - /).','error');return;
-  }
-  const zadnjaInjekcija=document.getElementById('pZadnjaInjekcija').value;
-  const isFuture=zadnjaInjekcija>todayISO();
-  const telefon=document.getElementById('pTelefon').value.trim();
+  if(maticni&&!/^[A-Za-z0-9\-\/]{3,20}$/.test(maticni)){showToast('Matični indeks naj bo 3–20 znakov.','error');return;}
+  const duplicateMaticni=maticni&&data.pacienti.find(x=>!x.izbrisan&&x.id!==Number(editingId)&&String(x.maticni||'').toLowerCase()===maticni.toLowerCase());
+  if(duplicateMaticni){showToast(`Matični indeks že uporablja ${duplicateMaticni.ime} ${duplicateMaticni.priimek}.`,'error');return;}
+  const sameName=data.pacienti.find(x=>!x.izbrisan&&x.id!==Number(editingId)&&x.ime.trim().toLowerCase()===ime.toLowerCase()&&x.priimek.trim().toLowerCase()===priimek.toLowerCase());
+  if(sameName&&!confirm(`Pacient z imenom ${sameName.ime} ${sameName.priimek} že obstaja. Vseeno shrani novega/drugega pacienta?`))return;
 
-  const p={ime,priimek,maticni,telefon,zdravilo,odmerek,
-    interval:intervalNum,
-    status:document.getElementById('pStatus').value,
-    zadnjaInjekcija,
-    zadnjaKontrola:document.getElementById('pZadnjaKontrola').value||'',
-    psaIntervalMeseci:parseInt(document.getElementById('pPsaInterval').value)||6,
-    opombe:document.getElementById('pOpombe').value.trim(),
-  };
+  const datumTip=document.getElementById('pDatumTip').value;
+  const vnesenDatum=document.getElementById('pZadnjaInjekcija').value;
+  if(datumTip==='zadnja'&&vnesenDatum>todayISO()){showToast('Opravljena injekcija ne more biti v prihodnosti.','error');return;}
+  if(datumTip==='prviTermin'&&vnesenDatum&&vnesenDatum<todayISO()){showToast('Prvi termin ne more biti v preteklosti.','error');return;}
+  const status=document.getElementById('pStatus').value;
+  const stari=editingId?getP(editingId):null;
+  const zadnjaInjekcija=datumTip==='zadnja'?vnesenDatum:(stari?stari.zadnjaInjekcija||'':'');
+  const pacData={ime,priimek,maticni,telefon:document.getElementById('pTelefon').value.trim(),zdravilo,odmerek,interval:intervalNum,status,zadnjaInjekcija,zadnjaKontrola:document.getElementById('pZadnjaKontrola').value||'',psaIntervalMeseci:parseInt(document.getElementById('pPsaInterval').value)||6,zdravljenje:document.getElementById('pZdravljenje').value||'neznano',opombe:document.getElementById('pOpombe').value.trim()};
+  const zk=zalogeKey(zdravilo,odmerek);if(data.zaloge[zk]===undefined)data.zaloge[zk]=0;
 
-  const zk=zalogeKey(zdravilo,odmerek);
-  if(data.zaloge[zk]===undefined)data.zaloge[zk]=0;
-
-  if(editingId){
-    const idx=data.pacienti.findIndex(x=>x.id===Number(editingId));
-    if(idx<0){showToast('Pacient ne obstaja!','error');return;}
-    const stari=data.pacienti[idx];
-    const zdraviloSpremenjen=(stari.zdravilo!==zdravilo||String(stari.odmerek)!==String(odmerek));
-    data.pacienti[idx]={...stari,...p};
-
-    if(zdraviloSpremenjen){
-      // Posodobi vse PRIHODNJE čakajoče injekcijske termine na novo zdravilo
-      let posodobljenih=0;
-      data.termini.forEach(t=>{
-        if(t.pacientId===Number(editingId)&&t.status==='caka'&&t.tip!=='kontrola'){
-          t.zdravilo=zdravilo;t.odmerek=odmerek;posodobljenih++;
-        }
-      });
-      // Preveri, ali je bila danes/nedavno potrjena injekcija s starim zdravilom
-      // (tipičen primer: potrdil Dipherelin, nato spremenil na Eligard, ker je dejansko dobil Eligard)
-      const danes=todayISO();
-      const nedavnaPotrditev=data.termini.filter(t=>
-        t.pacientId===Number(editingId)&&t.status==='opravljeno'&&
-        t.zdravilo===stari.zdravilo&&String(t.odmerek)===String(stari.odmerek)&&
-        t.opravljenoDatum&&daysDiff(t.opravljenoDatum,danes)<=3
-      ).sort((a,b)=>(b.opravljenoDatum||'').localeCompare(a.opravljenoDatum||''))[0];
-
-      let zalogaMsg='';
-      if(nedavnaPotrditev){
-        const popraviZalogo=confirm(
-          `Spremenil si zdravilo iz "${stari.zdravilo} ${stari.odmerek}mg" v "${zdravilo} ${odmerek}mg".\n\n`+
-          `Pred kratkim (${fmtDate(nedavnaPotrditev.opravljenoDatum)}) je bila potrjena injekcija s starim zdravilom.\n\n`+
-          `Ali je pacient dejansko dobil NOVO zdravilo (${zdravilo})?\n\n`+
-          `OK = popravi zalogo (vrni ${stari.zdravilo}, odštej ${zdravilo}) in popravi zapis\n`+
-          `Prekliči = pusti kot je`
-        );
-        if(popraviZalogo){
-          // Vrni staro zdravilo v zalogo
-          const oldZk=zalogeKey(stari.zdravilo,stari.odmerek);
-          data.zaloge[oldZk]=(data.zaloge[oldZk]||0)+1;
-          data.zalogeLog.push({datum:danes,zdravilo:stari.zdravilo,odmerek:stari.odmerek,tip:'prejem',kolicina:1,opomba:`Popravek: napačno odšteto (${p.ime} ${p.priimek})`});
-          // Odštej novo zdravilo
-          const newZk=zalogeKey(zdravilo,odmerek);
-          if(data.zaloge[newZk]===undefined)data.zaloge[newZk]=0;
-          data.zaloge[newZk]--;
-          data.zalogeLog.push({datum:danes,zdravilo,odmerek,tip:'poraba',kolicina:1,opomba:`${p.ime} ${p.priimek} (popravek zdravila)`});
-          // Popravi sam zapis opravljenega termina
-          nedavnaPotrditev.zdravilo=zdravilo;
-          nedavnaPotrditev.odmerek=odmerek;
-          zalogaMsg=' Zaloga popravljena.';
-        }
+  if(stari){
+    const oldStatus=stari.status,oldInterval=stari.interval,oldLast=stari.zadnjaInjekcija||'';
+    const medChanged=stari.zdravilo!==zdravilo||String(stari.odmerek)!==String(odmerek);
+    const patientSnapshot={...stari};
+    const terminiSnapshot=data.termini.map(t=>({...t}));
+    const oldPending=terminiSnapshot.filter(t=>t.pacientId===stari.id&&t.status==='caka'&&t.tip!=='kontrola')
+      .sort((a,b)=>a.datum.localeCompare(b.datum)||(a.ura||'').localeCompare(b.ura||''))[0]||null;
+    Object.assign(stari,pacData);
+    getPendingInjections(stari.id).forEach(t=>{if(medChanged){t.zdravilo=zdravilo;t.odmerek=odmerek;}});
+    if(status==='neaktiven'&&getPendingInjections(stari.id).length){
+      if(!confirm('Pacient bo neaktiven. Prekličem vse njegove čakajoče injekcijske termine?')){
+        Object.assign(stari,patientSnapshot);data.termini=terminiSnapshot;return;
       }
-      showToast(`Pacient posodobljen ✓ (${posodobljenih} prihodnjih terminov na novo zdravilo).${zalogaMsg}`,'success');
-    }else{
-      showToast('Pacient posodobljen ✓','success');
+      getPendingInjections(stari.id).forEach(t=>{t.status='preklican';t.opomba=(t.opomba?t.opomba+' · ':'')+'pacient deaktiviran';});
+    }else if(status==='aktiven'){
+      let fromDate=null,reason='';
+      if(datumTip==='prviTermin'&&vnesenDatum&&(!oldPending||oldPending.datum!==vnesenDatum)){
+        fromDate=vnesenDatum;reason='ročno nastavljen prvi termin';
+      }else if(datumTip==='zadnja'&&vnesenDatum&&(oldInterval!==intervalNum||oldLast!==zadnjaInjekcija)){
+        if(confirm('Datum zadnje injekcije ali interval se je spremenil. Naj ponovno izračunam naslednji termin?')){
+          fromDate=fmtISO(addDays(new Date(zadnjaInjekcija+'T12:00:00'),intervalNum));reason='ponovno izračunan po spremembi pacienta';
+        }
+      }else if(oldStatus!=='aktiven'&&!oldPending){
+        if(vnesenDatum&&datumTip==='prviTermin'){fromDate=vnesenDatum;reason='termin ob ponovni aktivaciji';}
+        else if(zadnjaInjekcija){fromDate=fmtISO(addDays(new Date(zadnjaInjekcija+'T12:00:00'),intervalNum));reason='samodejno ob ponovni aktivaciji';}
+      }
+      if(fromDate){
+        const nt=reschedulePendingInjection(stari,fromDate,reason);
+        if(!nt){Object.assign(stari,patientSnapshot);data.termini=terminiSnapshot;showToast('Ni prostega termina v naslednjem letu. Spremembe niso shranjene.','error');return;}
+      }
     }
+    showToast(medChanged?'Pacient posodobljen; prihodnji termini uporabljajo novo zdravilo, zgodovina ostaja nespremenjena.':'Pacient posodobljen ✓','success');
   }else{
-    p.id=data.nextId++;
-    p.izbrisan=false;
-    p.psa=[];
-    data.pacienti.push(p);
-    if(zadnjaInjekcija){
-      if(isFuture){
-        const slot=getNextSlot(zadnjaInjekcija);
-        if(slot)data.termini.push({id:newId('t'),pacientId:p.id,zdravilo,odmerek,datum:slot.datum,ura:slot.ura,status:'caka',tip:'injekcija',opomba:'',prvaInjekcija:true});
-      }else{
-        const slot=calcNext(zadnjaInjekcija,p.interval);
-        if(slot)data.termini.push({id:newId('t'),pacientId:p.id,zdravilo,odmerek,datum:slot.datum,ura:slot.ura,status:'caka',tip:'injekcija',opomba:''});
-      }
+    const p={...pacData,id:data.nextId++,izbrisan:false,psa:[]};data.pacienti.push(p);
+    if(vnesenDatum){
+      const from=datumTip==='prviTermin'?vnesenDatum:fmtISO(addDays(new Date(vnesenDatum+'T12:00:00'),intervalNum));
+      const nt=reschedulePendingInjection(p,from,datumTip==='prviTermin'?'prvi termin':'samodejno po zadnji injekciji');
+      if(!nt){data.pacienti=data.pacienti.filter(x=>x.id!==p.id);showToast('Ni prostega termina v naslednjem letu. Pacient ni bil dodan.','error');return;}
     }
     showToast('Pacient dodan ✓','success');
   }
-  save();closeModal('modalPacient');renderPacienti();
+  save();closeModal('modalPacient');renderPacienti();updateUrejanjeBadge();
 }
 
 function deletePacient(){
@@ -2188,12 +2221,12 @@ function openPotrdi(terminId){
   if(!t||t.status==='opravljeno'){showToast('Ta termin je že potrjen!','error');return;}
   potrdiId=terminId;
   const p=data.pacienti.find(x=>x.id===t.pacientId);
-  const zk=zalogeKey(t.zdravilo||p.zdravilo,t.odmerek||p.odmerek);
+  const zk=t.zalogaKey||zalogeKey(t.zdravilo||p.zdravilo,t.odmerek||p.odmerek);
   const zal=data.zaloge[zk]||0;
   document.getElementById('potrdiInfo').innerHTML=`
-    <p><strong>${esc(p.ime)} ${esc(p.priimek)}</strong> <span style="font-family:monospace;color:var(--text2);font-size:.85rem">${p.maticni||''}</span></p>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:4px">${t.zdravilo} ${p.odmerek||''}mg — razpisan: ${fmtDate(t.datum)} ${t.ura}</p>
-    ${zal<=0?'<p style="color:var(--danger);font-size:.84rem;margin-top:6px;font-weight:600">⚠ Zaloga tega zdravila je 0 — poraba ne bo odšteta. Preveri zalogo v Lekarni.</p>':`<p style="color:var(--text2);font-size:.8rem;margin-top:4px">Zaloga: ${zal} → po potrditvi ${zal-1}</p>`}`;
+    <p><strong>${esc(p.ime)} ${esc(p.priimek)}</strong> <span style="font-family:monospace;color:var(--text2);font-size:.85rem">${esc(p.maticni||'')}</span></p>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:4px">${esc(t.zdravilo||p.zdravilo)} ${esc(t.odmerek||p.odmerek||'')}mg — razpisan: ${fmtDate(t.datum)} ${esc(t.ura||'')}</p>
+    <p style="color:${zal<=0?'var(--danger)':'var(--text2)'};font-size:.82rem;margin-top:5px;${zal<=0?'font-weight:600':''}">${zal<=0?'⚠ Evidentirana zaloga je '+zal+'. Poraba bo vseeno zabeležena in zaloga bo '+(zal-1)+'.':'Zaloga: '+zal+' → po potrditvi '+(zal-1)}</p>`;
   document.getElementById('potrdiDatum').value=todayISO();
   document.getElementById('potrdiOpomba').value='';
   updatePotrdiPreview();
@@ -2219,60 +2252,41 @@ function openPotrdiByPacient(pacientId){
   if(t){openPotrdi(t.id);return;}
   // No termin — create ad-hoc using next available slot
   const slot=getNextSlot(todayISO());
-  if(!slot){showToast('Ni prostega termina v naslednjih 90 dneh!','error');return;}
+  if(!slot){showToast('Ni prostega termina v naslednjem letu!','error');return;}
   const fid=newId('tmp');
   data.termini.push({id:fid,pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum:slot.datum,ura:slot.ura,status:'caka',tip:'injekcija',opomba:''});
   openPotrdi(fid);
 }
 function confirmInjekcija(){
   const datum=document.getElementById('potrdiDatum').value;
-  const opomba=document.getElementById('potrdiOpomba').value;
+  const opomba=document.getElementById('potrdiOpomba').value.trim();
   if(!datum){showToast('Vnesite datum!','error');return;}
-  const t=data.termini.find(x=>x.id===potrdiId);
+  if(datum>todayISO()){showToast('Injekcije ni mogoče potrditi z datumom v prihodnosti.','error');return;}
+  const t=data.termini.find(x=>x.id===potrdiId);if(!t)return;
   if(t.status==='opravljeno'){showToast('Že potrjeno!','error');closeModal('modalPotrdi');return;}
-  const p=data.pacienti.find(x=>x.id===t.pacientId);
-  t.status='opravljeno';t.opravljenoDatum=datum;t.opomba=opomba;
-  t.potrjenoAt=new Date().toISOString();
-  t.prevZadnjaInjekcija=p.zadnjaInjekcija||'';
-  p.zadnjaInjekcija=datum;
+  const p=getP(t.pacientId);if(!p){showToast('Pacient ne obstaja!','error');return;}
+  const otherPending=getPendingInjections(p.id).filter(x=>x.id!==t.id);
+  const oldStates=otherPending.map(x=>({x,status:x.status,opomba:x.opomba}));
+  otherPending.forEach(x=>x.status='preklican');
+  const ns=p.status==='aktiven'?calcNext(datum,p.interval):null;
+  if(p.status==='aktiven'&&!ns){oldStates.forEach(o=>{o.x.status=o.status;o.x.opomba=o.opomba;});showToast('Ni prostega naslednjega termina v naslednjem letu. Potrditev ni shranjena.','error');return;}
 
-  // Počisti morebitne DRUGE čakajoče injekcijske termine istega pacienta
-  // (npr. star zamujen termin, ki ni bil potrjen) — da pacient ne šteje dvakrat.
-  let pociscenih=0;
+  t.status='opravljeno';t.opravljenoDatum=datum;t.opomba=opomba;t.potrjenoAt=new Date().toISOString();
+  t.prevZadnjaInjekcija=p.zadnjaInjekcija||'';p.zadnjaInjekcija=datum;
   const preklicaniIds=[];
-  data.termini.forEach(x=>{
-    if(x.id!==t.id&&x.pacientId===p.id&&x.status==='caka'&&x.tip!=='kontrola'){
-      x.status='preklican';x.opomba=(x.opomba?x.opomba+' · ':'')+'nadomeščen ob potrditvi';pociscenih++;
-      preklicaniIds.push(x.id);
-    }
-  });
+  oldStates.forEach(o=>{o.x.status='preklican';o.x.opomba=(o.opomba?o.opomba+' · ':'')+'nadomeščen ob potrditvi';preklicaniIds.push(o.x.id);});
   t.preklicaniObPotrditvi=preklicaniIds;
-
-  // Next termin
-  const ns=calcNext(datum,p.interval);
   let newTid=null;
-  if(ns){
-    newTid=newId('t');
-    data.termini.push({id:newTid,pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum:ns.datum,ura:ns.ura,status:'caka',tip:'injekcija',opomba:''});
-  }
+  if(ns){newTid=newId('t');data.termini.push({id:newTid,pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum:ns.datum,ura:ns.ura,status:'caka',tip:'injekcija',opomba:''});}
   t.nextTerminId=newTid;
 
-  // Zaloga — by zdravilo+odmerek
-  const zk=zalogeKey(p.zdravilo,p.odmerek);
-  t.zalogaOdsteta=false;
-  if((data.zaloge[zk]||0)>0){
-    data.zaloge[zk]--;
-    t.zalogaOdsteta=true;
-    data.zalogeLog.push({datum,zdravilo:p.zdravilo,odmerek:p.odmerek,tip:'poraba',kolicina:1,opomba:`${p.ime} ${p.priimek}`});
-  }
+  const usedZ=t.zdravilo||p.zdravilo,usedO=t.odmerek||p.odmerek,zk=zalogeKey(usedZ,usedO);
+  if(data.zaloge[zk]===undefined)data.zaloge[zk]=0;
+  data.zaloge[zk]-=1;t.zalogaOdsteta=true;t.zalogaKey=zk;
+  data.zalogeLog.push({datum,zdravilo:usedZ,odmerek:usedO,tip:'poraba',kolicina:1,opomba:`${p.ime} ${p.priimek}${data.zaloge[zk]<0?' — primanjkljaj zaloge':''}`});
   save();closeModal('modalPotrdi');
-  showToast(`✅ Potrjeno! Naslednji: ${ns?fmtDate(ns.datum):'—'}`+(pociscenih?` (počiščen ${pociscenih} star termin)`:''), 'success');
-  // cloud push gre samodejno prek save()
-  renderDashboard();
-  // Shranim za PSA korak in print
-  psaAfterInjekcija={pacientId:p.id, naslednjiTerminId:newTid};
-  // Ali je PSA kontrola "dolžna"? (zadnja meritev starejša od intervala)
-  openPsaModal(p, datum);
+  showToast(`✅ Potrjeno! Naslednji: ${ns?fmtDate(ns.datum):'pacient neaktiven'}${data.zaloge[zk]<0?' · ⚠ zaloga v minusu':''}`,'success');
+  renderDashboard();psaAfterInjekcija={pacientId:p.id,naslednjiTerminId:newTid};openPsaModal(p,datum);
 }
 
 // ============================================================
@@ -2317,7 +2331,7 @@ function razveljaviPotrditev(terminId){
       const zk=zalogeKey(t.zdravilo||p.zdravilo,t.odmerek||p.odmerek);
       data.zaloge[zk]=(data.zaloge[zk]||0)+1;
       data.zalogeLog.push({datum:todayISO(),zdravilo:t.zdravilo||p.zdravilo,odmerek:t.odmerek||p.odmerek,tip:'prejem',kolicina:1,opomba:`Razveljavitev potrditve (${p.ime} ${p.priimek}, ${fmtDate(opDatum)})`});
-      delete t.zalogaOdsteta;
+      delete t.zalogaOdsteta;delete t.zalogaKey;
     }
     // 5) Obnovi termine, preklicane ob potrditvi
     if(Array.isArray(t.preklicaniObPotrditvi)){
@@ -2369,31 +2383,36 @@ function psaUpdatePreview(){
   if(!p||isNaN(v)||v<0){el.innerHTML='';return;}
   // Simuliram dodano meritev
   const dat=document.getElementById('psaDatum').value||todayISO();
-  const sim={...p,psa:[...psaList(p),{datum:dat,vrednost:v}]};
+  const simList=psaList(p).filter(m=>m.datum!==dat);simList.push({datum:dat,vrednost:v});const sim={...p,psa:simList};
   const rel=psaRelaps(sim);
   if(rel.level==='alarm'){
-    el.innerHTML=`<div style="background:#7c1d1d18;border-left:3px solid #c0392b;padding:8px 10px;border-radius:4px;color:#c0392b">⚠ <strong>Opozorilo:</strong> ${rel.razlogi[0]}</div>`;
+    el.innerHTML=`<div style="background:#7c1d1d18;border-left:3px solid #c0392b;padding:8px 10px;border-radius:4px;color:#c0392b">⚠ <strong>Opozorilo:</strong> ${esc(rel.razlogi[0]||'')}</div>`;
   }else if(rel.level==='pozor'){
-    el.innerHTML=`<div style="background:#e67e2218;border-left:3px solid #e67e22;padding:8px 10px;border-radius:4px;color:#b5651d">↑ ${rel.razlogi[0]}</div>`;
+    el.innerHTML=`<div style="background:#e67e2218;border-left:3px solid #e67e22;padding:8px 10px;border-radius:4px;color:#b5651d">↑ ${esc(rel.razlogi[0]||'')}</div>`;
   }else{
-    el.innerHTML='<span style="color:var(--accent)">✓ Vrednost v pričakovanem območju</span>';
+    el.innerHTML='<span style="color:var(--accent)">✓ Po nastavljenih pravilih ni sproženega PSA-opozorila.</span>';
   }
 }
+function recomputePsaDerived(p){
+  const byDate=new Map();(p.psa||[]).filter(m=>m&&/^\d{4}-\d{2}-\d{2}$/.test(m.datum)&&Number.isFinite(Number(m.vrednost))).forEach(m=>byDate.set(m.datum,{datum:m.datum,vrednost:Number(m.vrednost)}));
+  p.psa=[...byDate.values()].sort((a,b)=>a.datum.localeCompare(b.datum));
+  const z=psaZadnja(p);p.zadnjaPsa=z?z.datum:'';
+}
+function upsertPsaMeasurement(p,dat,v){
+  if(!Array.isArray(p.psa))p.psa=[];
+  const existing=p.psa.find(m=>m.datum===dat);
+  if(existing){if(!confirm(`PSA za ${fmtDate(dat)} že obstaja (${existing.vrednost}). Zamenjam z ${v}?`))return false;existing.vrednost=v;}
+  else p.psa.push({datum:dat,vrednost:v});
+  recomputePsaDerived(p);return true;
+}
 function psaSave(){
-  const p=getP(psaModalPacientId);
-  if(!p)return;
+  const p=getP(psaModalPacientId);if(!p)return;
   const v=parseFloat(document.getElementById('psaVrednost').value.replace(',','.'));
   const dat=document.getElementById('psaDatum').value;
   if(isNaN(v)||v<0){showToast('Vnesite veljavno PSA vrednost!','error');return;}
   if(!dat){showToast('Vnesite datum odvzema!','error');return;}
-  if(!Array.isArray(p.psa))p.psa=[];
-  p.psa.push({datum:dat,vrednost:v});
-  p.zadnjaKontrola=dat;
-  save();
-  closeModal('modalPsa');
-  // Po shranjevanju preverim relaps in po potrebi naročim kontrolo + opozorim
-  const rel=psaRelaps(p);
-  finishPsaFlow(p, rel);
+  if(!upsertPsaMeasurement(p,dat,v))return;
+  save();closeModal('modalPsa');finishPsaFlow(p,psaRelaps(p));
 }
 function psaSkip(){
   // Preloži PSA na naslednjič — samo zapre, natisne listek z opomnikom za PSA
@@ -2401,26 +2420,23 @@ function psaSkip(){
   closeModal('modalPsa');
   if(p)finishPsaFlow(p, null, true);
 }
-function finishPsaFlow(p, rel, skipped){
-  // Če relaps → ponudi takojšnjo kontrolo
+function finishPsaFlow(p,rel,skipped){
   if(rel&&rel.level==='alarm'){
-    const txt='⚠ OPOZORILO — možen biokemični relaps:\n\n'+rel.razlogi.map(r=>'• '+r).join('\n')+
-      (rel.dt!==null?`\n\nČas podvojitve PSA: ${rel.dt.toFixed(1)} mesecev.`:'')+
-      '\n\nNaj razpišem PREDČASNO kontrolo (v 14 dneh) in jo označim kot nujno?';
+    const naslov=rel.phoenix?'Možen biokemični relaps po radioterapiji':'Pomembno PSA opozorilo';
+    const txt='⚠ '+naslov+':\n\n'+rel.razlogi.map(r=>'• '+r).join('\n')+(rel.dt!==null?`\n\nČas podvojitve PSA: ${rel.dt.toFixed(1)} mesecev.`:'')+'\n\nNaj razpišem predčasno kontrolo v naslednjih 14 dneh?';
     if(confirm(txt)){
-      const slot=getNextSlot(todayISO());
-      if(slot){
-        data.termini.push({id:newId('k'),pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum:slot.datum,ura:'',status:'caka',tip:'kontrola',opomba:'⚠ NUJNO — možen PSA relaps, preveri svež izvid',nujno:true});
-        save();
-        showToast('Nujna kontrola razpisana ✓','success');
+      const obstojeca=data.termini.filter(t=>t.pacientId===p.id&&t.tip==='kontrola'&&t.status==='caka'&&t.nujno)
+        .sort((a,b)=>a.datum.localeCompare(b.datum)||(a.ura||'').localeCompare(b.ura||''))[0];
+      if(obstojeca){
+        showToast(`Nujna kontrola že obstaja: ${fmtDate(obstojeca.datum)} ${obstojeca.ura||''}`,'success');
+      }else{
+        const slot=getNextSlot(todayISO(),{maxDays:15});
+        if(slot){data.termini.push({id:newId('k'),pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum:slot.datum,ura:slot.ura,status:'caka',tip:'kontrola',opomba:'⚠ NUJNO — PSA opozorilo, preveri svež izvid',nujno:true});save();showToast(`Nujna kontrola: ${fmtDate(slot.datum)} ${slot.ura}`,'success');}
+        else showToast('V naslednjih 14 dneh ni prostega termina. Kontrolo je treba razpisati ročno.','error');
       }
     }
   }
-  // Natisni listek za naslednji termin (z morebitnim opozorilom za PSA)
-  if(psaAfterInjekcija&&psaAfterInjekcija.naslednjiTerminId){
-    const tid=psaAfterInjekcija.naslednjiTerminId;
-    setTimeout(()=>printSlip(tid),300);
-  }
+  if(psaAfterInjekcija&&psaAfterInjekcija.naslednjiTerminId){const tid=psaAfterInjekcija.naslednjiTerminId;setTimeout(()=>printSlip(tid),300);}
   psaAfterInjekcija=null;
   if(document.getElementById('page-pacienti').classList.contains('active'))renderPacienti();
   renderDashboard();
@@ -2453,14 +2469,14 @@ function renderPsaHistory(){
   let stats=`<div style="display:flex;gap:18px;flex-wrap:wrap;font-size:.86rem">`;
   stats+=`<div>Meritev: <strong>${l.length}</strong></div>`;
   if(nadir)stats+=`<div>Nadir: <strong>${nadir.vrednost}</strong> (${fmtDate(nadir.datum)})</div>`;
-  if(dt!==null)stats+=`<div>Čas podvojitve: <strong style="color:${dt<10?'#c0392b':'inherit'}">${dt.toFixed(1)} mes.</strong></div>`;
+  if(dt!==null){const di=rel.dtInfo;stats+=`<div>Čas podvojitve: <strong style="color:${dt<10?'#c0392b':'inherit'}">${dt.toFixed(1)} mes.</strong> <span style="color:var(--text2)">(${di.count} meritev / ${di.spanDays} dni)</span></div>`;}else if(l.length>=2)stats+=`<div style="color:var(--text2)">PSADT: premalo zanesljivih podatkov (potrebne ≥3 meritve v ≥8 tednih)</div>`;
   if(nasl)stats+=`<div>Naslednja kontrola: <strong>${fmtDate(nasl)}</strong></div>`;
   stats+=`</div>`;
   if(rel.level!=='ok'){
     const col=rel.level==='alarm'?'#c0392b':'#e67e22';
     const bg=rel.level==='alarm'?'#7c1d1d18':'#e67e2218';
     stats+=`<div style="background:${bg};border-left:3px solid ${col};padding:10px 12px;border-radius:4px;margin-top:10px;font-size:.85rem">
-      <strong style="color:${col}">${rel.level==='alarm'?'⚠ Možen biokemični relaps':'↑ Spremljaj pozorno'}</strong>
+      <strong style="color:${col}">${rel.level==='alarm'?(rel.phoenix?'⚠ Možen biokemični relaps':'⚠ PSA opozorilo'):'↑ Spremljaj pozorno'}</strong>
       <ul style="margin:6px 0 0;padding-left:18px;color:${col}">${rel.razlogi.map(r=>`<li>${r}</li>`).join('')}</ul>
     </div>`;
   }
@@ -2482,30 +2498,17 @@ function renderPsaHistory(){
   }).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:14px">Ni meritev</td></tr>';
 }
 function psaAddManual(){
-  const p=getP(psaModalPacientId);
-  if(!p)return;
-  const v=parseFloat(document.getElementById('psaHistVrednost').value.replace(',','.'));
-  const dat=document.getElementById('psaHistDatum').value;
-  if(isNaN(v)||v<0){showToast('Vnesite PSA vrednost!','error');return;}
-  if(!dat){showToast('Vnesite datum!','error');return;}
-  if(!Array.isArray(p.psa))p.psa=[];
-  p.psa.push({datum:dat,vrednost:v});
-  // posodobi zadnjo kontrolo, če je to najnovejša
-  const z=psaZadnja(p);
-  if(z&&z.datum===dat)p.zadnjaKontrola=dat;
-  save();
-  document.getElementById('psaHistVrednost').value='';
-  renderPsaHistory();
-  renderPacienti();
-  showToast('PSA dodan ✓','success');
+  const p=getP(psaModalPacientId);if(!p)return;
+  const v=parseFloat(document.getElementById('psaHistVrednost').value.replace(',','.'));const dat=document.getElementById('psaHistDatum').value;
+  if(isNaN(v)||v<0){showToast('Vnesite PSA vrednost!','error');return;}if(!dat){showToast('Vnesite datum!','error');return;}
+  if(!upsertPsaMeasurement(p,dat,v))return;
+  save();document.getElementById('psaHistVrednost').value='';renderPsaHistory();renderPacienti();showToast('PSA shranjen ✓','success');
 }
 function psaDelete(datum,vrednost){
-  const p=getP(psaModalPacientId);
-  if(!p)return;
+  const p=getP(psaModalPacientId);if(!p)return;
   if(!confirm(`Izbrisati meritev ${vrednost} z dne ${fmtDate(datum)}?`))return;
-  p.psa=p.psa.filter(m=>!(m.datum===datum&&m.vrednost===vrednost));
-  save();renderPsaHistory();renderPacienti();
-  showToast('Meritev izbrisana','error');
+  const idx=p.psa.findIndex(m=>m.datum===datum&&Number(m.vrednost)===Number(vrednost));if(idx<0)return;
+  p.psa.splice(idx,1);recomputePsaDerived(p);save();renderPsaHistory();renderPacienti();showToast('Meritev izbrisana','error');
 }
 
 // Velik graf z osmi, nadir črto, barvanjem trenda
@@ -2528,7 +2531,7 @@ function psaBigChart(p,w,h){
   const pts=l.map(m=>[X(m.datum),Y(m.vrednost)]);
   const path=pts.map((pt,i)=>(i?'L':'M')+pt[0].toFixed(1)+','+pt[1].toFixed(1)).join(' ');
   // Phoenix prag (nadir+2)
-  const phoenixY=nadir?Y(nadir.vrednost+2):null;
+  const phoenixY=p.zdravljenje==='radioterapija'&&nadir?Y(nadir.vrednost+2):null;
   let svg=`<svg width="${w}" height="${h}" style="max-width:100%;background:var(--surface2);border-radius:8px">`;
   // Y osi oznake
   for(let i=0;i<=4;i++){
@@ -2562,11 +2565,16 @@ function psaBigChart(p,w,h){
 // KONTROLA TERMINI
 // ============================================================
 function openDodajKontroloTermin(){
-  document.getElementById('kontroloSearch').value='';
-  document.getElementById('kontroloDatum').value='';
-  document.getElementById('kontroloOpomba').value='';
-  fillKontroloPacienti('');
-  openModal('modalDodajKontrolo');
+  document.getElementById('kontroloSearch').value='';document.getElementById('kontroloDatum').value=todayISO();document.getElementById('kontroloUra').value='';document.getElementById('kontroloOpomba').value='';
+  fillKontroloPacienti('');suggestKontrolaTime();openModal('modalDodajKontrolo');
+}
+function suggestKontrolaTime(){
+  const datum=document.getElementById('kontroloDatum').value,el=document.getElementById('kontroloSlotInfo');if(!datum){el.textContent='';return;}
+  const d=new Date(datum+'T12:00:00');
+  if(!isDelovniDan(d)){document.getElementById('kontroloUra').value='';el.innerHTML='<span style="color:var(--danger)">Ta datum ni aktiven delovni dan ali je praznik.</span>';return;}
+  const info=getDayCapacityInfo(datum);
+  if(info.free.length){const ura=minToTime(info.free[0]);document.getElementById('kontroloUra').value=ura;el.innerHTML=`<span style="color:var(--accent)">Prva prosta ura: ${ura} (${info.appts.length}/${info.capacity} zasedeno)</span>`;}
+  else{document.getElementById('kontroloUra').value='';el.innerHTML='<span style="color:var(--danger)">Ta dan je poln.</span>';}
 }
 
 function fillKontroloPacienti(search){
@@ -2583,16 +2591,11 @@ function filterKontroloPacienti(val){
   fillKontroloPacienti(val);
 }
 function saveKontroloTermin(){
-  const pacientId=parseInt(document.getElementById('kontroloPacient').value);
-  const datum=document.getElementById('kontroloDatum').value;
-  const opomba=document.getElementById('kontroloOpomba').value;
-  if(!datum){showToast('Vnesite datum!','error');return;}
-  const p=getP(pacientId);
-  if(!p){showToast('Izberite pacienta!','error');return;}
-  data.termini.push({id:newId('k'),pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum,ura:'',status:'caka',tip:'kontrola',opomba});
-  save();closeModal('modalDodajKontrolo');
-  showToast('Termin kontrole dodan ✓','success');
-  renderTermini();
+  const pacientId=parseInt(document.getElementById('kontroloPacient').value),datum=document.getElementById('kontroloDatum').value,ura=document.getElementById('kontroloUra').value,opomba=document.getElementById('kontroloOpomba').value.trim();
+  const p=getP(pacientId);if(!p){showToast('Izberite pacienta!','error');return;}
+  const valid=validateAppointmentSlot(datum,ura,null);if(!valid.ok){showToast(valid.msg,'error');return;}
+  data.termini.push({id:newId('k'),pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum,ura,status:'caka',tip:'kontrola',opomba});
+  save();closeModal('modalDodajKontrolo');showToast('Termin kontrole dodan ✓','success');renderTermini();
 }
 
 let potrdiKontroloId=null;
@@ -2610,6 +2613,7 @@ function confirmKontrola(){
   const datum=document.getElementById('potrdiKontroloDatum').value;
   const opomba=document.getElementById('potrdiKontroloOpomba').value;
   if(!datum){showToast('Vnesite datum!','error');return;}
+  if(datum>todayISO()){showToast('Kontrole ni mogoče potrditi z datumom v prihodnosti.','error');return;}
   const t=data.termini.find(x=>x.id===potrdiKontroloId);
   const p=data.pacienti.find(x=>x.id===t.pacientId);
   t.status='opravljeno';t.opravljenoDatum=datum;t.opomba=opomba;
@@ -2636,13 +2640,13 @@ function renderTermini(){
   const ws=getWS(wkOffset);
   const days=[];for(let i=0;i<5;i++){const d=new Date(ws);d.setDate(ws.getDate()+i);days.push(d);}
   document.getElementById('weekTitle').textContent=`${fmtDate(days[0])} — ${fmtDate(days[4])}`;
-  const ts=todayISO();const max=data.settings.maxPacientov||5;
+  const ts=todayISO();const max=buildDailySlots().length;
   const dn=['Pon','Tor','Sre','Čet','Pet'];
 
   document.getElementById('weekGrid').innerHTML=days.map((d,i)=>{
     const ds=fmtISO(d);
     const termini=data.termini.filter(t=>t.datum===ds&&t.status!=='preklican').sort((a,b)=>(a.ura||'').localeCompare(b.ura||''));
-    const injCount=termini.filter(t=>t.tip!=='kontrola').length;
+    const injCount=termini.length;
     return`<div class="day-col${ds===ts?' today':''}">
       <div class="day-header">${dn[i]}<span class="day-date">${d.getDate()}.${d.getMonth()+1}.</span>
         <span style="font-size:.72rem;opacity:.8">${injCount}/${max}</span></div>
@@ -2651,9 +2655,9 @@ function renderTermini(){
         const isK=t.tip==='kontrola';
         const done=t.status==='opravljeno';
         return`<div class="day-slot${isK?' kontrola-slot':''}" style="${done?'opacity:.45':''}">
-          <div style="font-size:.72rem;font-weight:700;color:${isK?'#9b59b6':'var(--accent)'}">${t.ura||'🩺'}</div>
-          <div style="font-weight:500">${p?p.priimek+' '+p.ime[0]+'.':'?'}</div>
-          <div style="font-size:.72rem;color:var(--text2)">${isK?'Kontrola':t.zdravilo.split(' ')[0]}</div>
+          <div style="font-size:.72rem;font-weight:700;color:${isK?'#9b59b6':'var(--accent)'}">${esc(t.ura||'🩺')}</div>
+          <div style="font-weight:500">${p?esc(p.priimek+' '+(p.ime?p.ime[0]:'')+'.'):'?'}</div>
+          <div style="font-size:.72rem;color:var(--text2)">${isK?'Kontrola':esc(String(t.zdravilo||'').split(' ')[0])}</div>
           ${!done?(isK
             ?`<button class="btn btn-success btn-sm" style="margin-top:4px;width:100%;justify-content:center" onclick="openPotrdiKontrolo('${t.id}')">✅</button>`
             :`<button class="btn btn-success btn-sm" style="margin-top:4px;width:100%;justify-content:center" onclick="openPotrdi('${t.id}')">✅</button>`)
@@ -2686,15 +2690,15 @@ function renderTermini(){
         const zam=t.datum<ts&&t.status==='caka'&&!isK;
         return`<tr style="${t.status==='opravljeno'?'opacity:.6':''}${zam?';background:var(--warn-light)':''}">
           <td>${fmtDate(t.datum)}${zam?'<span class="badge-orange" style="margin-left:6px">zamuda</span>':''}</td>
-          <td>${t.ura||'—'}</td>
+          <td>${esc(t.ura||'—')}</td>
           <td><strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong></td>
-          <td><span style="font-family:monospace">${p?p.maticni||'—':'—'}</span></td>
-          <td>${t.zdravilo||''}${t.odmerek?' '+t.odmerek+'mg':''}</td>
+          <td><span style="font-family:monospace">${p?esc(p.maticni||'—'):'—'}</span></td>
+          <td>${esc(t.zdravilo||'')}${t.odmerek?' '+esc(t.odmerek)+'mg':''}</td>
           <td>${isK?'<span class="badge-purple">🩺 Kontrola</span>':'<span class="badge-blue">💉 Injekcija</span>'}</td>
           <td><span class="${sMap[t.status]||'badge-blue'}">${sLbl[t.status]||t.status}</span></td>
           <td style="white-space:nowrap">
             ${t.status==='caka'?(isK?`<button class="btn btn-success btn-sm" onclick="openPotrdiKontrolo('${t.id}')">✅</button>`:`<button class="btn btn-success btn-sm" onclick="openPotrdi('${t.id}')">✅</button>`):''}
-            ${t.status==='caka'&&!isK?`<button class="btn btn-primary btn-sm" onclick="openPrestavi('${t.id}')" title="Prestavi">📅</button>`:''}
+            ${t.status==='caka'?`<button class="btn btn-primary btn-sm" onclick="openPrestavi('${t.id}')" title="Prestavi">📅</button>`:''}
             ${lahkoRazveljavi(t)?`<button class="btn btn-secondary btn-sm" onclick="razveljaviPotrditev('${t.id}')" title="Razveljavi potrditev">↩</button>`:''}
             ${!isK&&t.status!=='preklican'?`<button class="btn btn-secondary btn-sm" onclick="printSlip('${t.id}')">🖨</button>`:''}
             ${t.status==='caka'?`<button class="btn btn-danger btn-sm" onclick="preklicanTermin('${t.id}')">✕</button>`:''}
@@ -2721,7 +2725,7 @@ function printWeek(){
   const ws=getWS(wkOffset);const days=[];for(let i=0;i<5;i++){const d=new Date(ws);d.setDate(ws.getDate()+i);days.push(d);}
   const dn=['Ponedeljek','Torek','Sreda','Četrtek','Petek'];
   const ord=data.settings.ordinacija||'Ordinacija';
-  let html=`<div style="font-family:Georgia,serif"><h2>${ord}</h2><h3 style="margin-bottom:4px">Termini: ${fmtDate(days[0])} – ${fmtDate(days[4])}</h3><hr style="margin:12px 0">`;
+  let html=`<div style="font-family:Georgia,serif"><h2>${esc(ord)}</h2><h3 style="margin-bottom:4px">Termini: ${fmtDate(days[0])} – ${fmtDate(days[4])}</h3><hr style="margin:12px 0">`;
   days.forEach((d,i)=>{
     const ds=fmtISO(d);
     const termini=data.termini.filter(t=>t.datum===ds&&t.status!=='preklican').sort((a,b)=>(a.ura||'').localeCompare(b.ura||''));
@@ -2731,7 +2735,7 @@ function printWeek(){
         <tr style="background:#eee"><th style="padding:4px 8px;text-align:left">Ura</th><th style="padding:4px 8px;text-align:left">Pacient</th><th style="padding:4px 8px;text-align:left">Mat. indeks</th><th style="padding:4px 8px;text-align:left">Zdravilo / tip</th></tr>`;
     termini.forEach(t=>{
       const p=data.pacienti.find(x=>x.id===t.pacientId);
-      html+=`<tr style="border-bottom:1px solid #ddd"><td style="padding:4px 8px">${t.ura||'—'}</td><td style="padding:4px 8px">${p?esc(p.ime+' '+p.priimek):'?'}</td><td style="padding:4px 8px;font-family:monospace">${p?p.maticni||'—':'—'}</td><td style="padding:4px 8px">${t.tip==='kontrola'?'🩺 Kontrola':t.zdravilo+' '+t.odmerek+'mg'}</td></tr>`;
+      html+=`<tr style="border-bottom:1px solid #ddd"><td style="padding:4px 8px">${esc(t.ura||'—')}</td><td style="padding:4px 8px">${p?esc(p.ime+' '+p.priimek):'?'}</td><td style="padding:4px 8px;font-family:monospace">${p?esc(p.maticni||'—'):'—'}</td><td style="padding:4px 8px">${t.tip==='kontrola'?'🩺 Kontrola':esc((t.zdravilo||'')+' '+(t.odmerek||'')+'mg')}</td></tr>`;
     });
     html+='</table></div>';
   });
@@ -2758,15 +2762,15 @@ function printSlip(terminId){
     }
   }
   document.getElementById('printSlipContent').innerHTML=`<div style="font-family:Georgia,serif;padding:10px">
-    <h2 style="font-size:1.1rem;margin-bottom:2px">${ord}</h2>
+    <h2 style="font-size:1.1rem;margin-bottom:2px">${esc(ord)}</h2>
     <h3 style="font-size:1rem;color:#555;margin-bottom:12px">NAROČILNICA — DEPO INJEKCIJA</h3><hr style="margin-bottom:14px">
     <table style="font-size:.93rem;width:100%">
       <tr><td style="padding:5px 0;color:#666;width:40%">Pacient:</td><td><strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong></td></tr>
-      <tr><td style="padding:5px 0;color:#666">Matični indeks:</td><td><strong style="font-family:monospace">${p?p.maticni||'—':'—'}</strong></td></tr>
-      <tr><td style="padding:5px 0;color:#666">Zdravilo:</td><td><strong>${t.zdravilo||''}</strong></td></tr>
-      <tr><td style="padding:5px 0;color:#666">Odmerek:</td><td>${t.odmerek||p&&p.odmerek||'—'} mg</td></tr>
+      <tr><td style="padding:5px 0;color:#666">Matični indeks:</td><td><strong style="font-family:monospace">${p?esc(p.maticni||'—'):'—'}</strong></td></tr>
+      <tr><td style="padding:5px 0;color:#666">Zdravilo:</td><td><strong>${esc(t.zdravilo||'')}</strong></td></tr>
+      <tr><td style="padding:5px 0;color:#666">Odmerek:</td><td>${esc(t.odmerek||(p&&p.odmerek)||'—')} mg</td></tr>
       <tr><td style="padding:5px 0;color:#666">Datum:</td><td><strong>${fmtDate(t.datum)}</strong></td></tr>
-      <tr><td style="padding:5px 0;color:#666">Ura:</td><td><strong>${t.ura||'—'}</strong></td></tr>
+      <tr><td style="padding:5px 0;color:#666">Ura:</td><td><strong>${esc(t.ura||'—')}</strong></td></tr>
       ${t.opomba?`<tr><td style="padding:5px 0;color:#666">Opomba:</td><td>${esc(t.opomba)}</td></tr>`:''}
     </table>
     ${psaOpomnik}
@@ -2816,7 +2820,7 @@ function renderLekarna(){
     periodLabel='do konca '+ms;
   }else{
     periodDays=parseInt(lekarnaPeriod);
-    endDate=fmtISO(addDays(todayDt,periodDays));
+    endDate=fmtISO(addDays(todayDt,periodDays-1));
     periodLabel=periodDays+' dni naprej';
   }
 
@@ -2853,7 +2857,7 @@ function renderLekarna(){
   const zamudeSkupaj=Object.values(zamude).reduce((a,b)=>a+b,0);
   const zamudeWarn=document.getElementById('lekarnaZamudeWarn');
   if(zamudeSkupaj>0){
-    const det=Object.entries(zamude).map(([k,v])=>{const[i,o]=k.split('||');return`${i} ${o}mg: ${v}`;}).join(' · ');
+    const det=Object.entries(zamude).map(([k,v])=>{const[i,o]=k.split('||');return`${esc(i)} ${esc(o)}mg: ${v}`;}).join(' · ');
     zamudeWarn.style.display='block';
     zamudeWarn.innerHTML=`<div style="background:#7c1d1d22;border-left:4px solid var(--danger);padding:10px 14px;margin-bottom:14px;border-radius:6px;font-size:.86rem">
       <strong style="color:var(--danger)">⚠ ${zamudeSkupaj} zamujenih terminov</strong> (čakajo, datum že pretekel) — ${det}.
@@ -2877,20 +2881,20 @@ function renderLekarna(){
     const lowDays=zalezeDni!==null&&zalezeDni<14;
     const lowAbs=zal<2;
     const safeId=k.replace(/\W/g,'_');
-    return`<div class="med-card"><div class="med-name">${z}${o?' <span style="font-size:.85rem;color:var(--text2)">'+o+'mg</span>':''}</div>
+    return`<div class="med-card"><div class="med-name">${esc(z)}${o?' <span style="font-size:.85rem;color:var(--text2)">'+esc(o)+'mg</span>':''}</div>
       <div class="med-row"><span>Aktivni pacienti</span><span><strong>${pac}</strong></span></div>
       <div class="med-row"><span>Povpr. poraba</span><span><strong>${mesecnaPoraba}</strong> <span style="color:var(--text2);font-size:.78rem">/mes (3m)</span></span></div>
       <div class="med-row"><span>Termini ${periodDays}d</span><span><strong>${c}</strong></span></div>
       ${zam>0?`<div class="med-row"><span style="color:var(--danger)">⚠ Zamude</span><span style="color:var(--danger);font-weight:700">${zam}</span></div>`:''}
       <div class="med-row" style="align-items:center;background:var(--surface2);margin:8px -14px;padding:8px 14px"><span>Zaloga</span>
         <span style="display:flex;align-items:center;gap:4px">
-          <button class="btn btn-secondary btn-sm" style="padding:2px 8px;min-width:auto" onclick="adjustZaloga('${k}',-1)" title="−1">−</button>
-          <input type="number" id="zal_${safeId}" value="${zal}" min="0" style="width:60px;text-align:center;padding:4px;font-weight:700;font-size:1rem;${lowAbs?'color:var(--danger)':''}" onchange="setZaloga('${k}',this.value)">
-          <button class="btn btn-secondary btn-sm" style="padding:2px 8px;min-width:auto" onclick="adjustZaloga('${k}',1)" title="+1">+</button>
+          <button class="btn btn-secondary btn-sm" style="padding:2px 8px;min-width:auto" onclick="adjustZaloga(${esc(JSON.stringify(k))},-1)" title="−1">−</button>
+          <input type="number" id="zal_${safeId}" value="${zal}" style="width:60px;text-align:center;padding:4px;font-weight:700;font-size:1rem;${lowAbs?'color:var(--danger)':''}" onchange="setZaloga(${esc(JSON.stringify(k))},this.value)">
+          <button class="btn btn-secondary btn-sm" style="padding:2px 8px;min-width:auto" onclick="adjustZaloga(${esc(JSON.stringify(k))},1)" title="+1">+</button>
         </span></div>
       <div class="med-row"><span>Zaloga zaleže za</span><span style="${lowDays?'color:var(--danger);font-weight:700':'color:var(--text2)'}">${zalezeDni!==null?(zalezeDni+' dni'):'—'}</span></div>
       <div class="med-row" style="border:none;background:#1e4d3522;margin:0 -14px;padding:10px 14px;border-radius:0 0 8px 8px"><span style="font-weight:600">📦 Naroči (${periodDays}d)</span><span style="color:var(--accent);font-weight:800;font-size:1.2rem">${naroci||'OK'}</span></div>
-      <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px" onclick="openZalogaHistory('${k}')">📋 Preveri zgodovino zaloge</button>
+      <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px" onclick="openZalogaHistory(${esc(JSON.stringify(k))})">📋 Preveri zgodovino zaloge</button>
     </div>`;
   }).join(''):'<p style="color:var(--text2);padding:16px">Ni zdravil / pacientov.</p>';
 
@@ -2901,14 +2905,14 @@ function renderLekarna(){
       const pov=Math.round((opr90[k]||0)/3*10)/10;
       const dnP=pov/30;const dni=dnP>0?Math.floor(zal/dnP):null;
       const stat=dni!==null&&dni<14?'<span class="badge-red">Nizka ⚠</span>':zal<3?'<span class="badge-red">Nizka ⚠</span>':zal<6?'<span class="badge-blue">Zadostna</span>':'<span class="badge-green">Dobra</span>';
-      return`<tr><td>${z}</td><td>${o||'—'}mg</td><td><strong>${zal}</strong></td><td>${pov}</td><td>${dni!==null?dni+' dni':'—'}</td><td>${stat}</td></tr>`;
+      return`<tr><td>${esc(z)}</td><td>${esc(o||'—')}mg</td><td><strong>${zal}</strong></td><td>${pov}</td><td>${dni!==null?dni+' dni':'—'}</td><td>${stat}</td></tr>`;
     }).join('')}
   </tbody></table>`;
 
   // Dnevnik
   const log=[...data.zalogeLog].reverse().slice(0,40);
   document.getElementById('zalogeLog').innerHTML=log.length
-    ?log.map(l=>`<tr><td>${fmtDate(l.datum)}</td><td>${l.zdravilo||''}${l.odmerek?' '+l.odmerek+'mg':''}</td>
+    ?log.map(l=>`<tr><td>${fmtDate(l.datum)}</td><td>${esc(l.zdravilo||'')}${l.odmerek?' '+esc(l.odmerek)+'mg':''}</td>
         <td>${l.tip==='prejem'?'<span class="badge-green">📦 Prejem</span>':l.tip==='rocno'?'<span class="badge-blue">✏️ Ročno</span>':'<span class="badge-gray">💉 Poraba</span>'}</td>
         <td>${l.tip==='prejem'?'+':l.tip==='rocno'?'=':'−'}${l.kolicina}</td><td style="color:var(--text2)">${esc(l.opomba||"")}</td></tr>`).join('')
     :'<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text2)">Ni vpisov</td></tr>';
@@ -2955,7 +2959,7 @@ function openZalogaHistory(key){
 // Ročno popravljanje zaloge — direktni vnos
 function setZaloga(key,newVal){
   const v=parseInt(newVal);
-  if(isNaN(v)||v<0){showToast('Vnesite veljavno število ≥ 0','error');renderLekarna();return;}
+  if(isNaN(v)){showToast('Vnesite veljavno celo število.','error');renderLekarna();return;}
   const old=data.zaloge[key]||0;
   if(v===old)return;
   data.zaloge[key]=v;
@@ -2967,7 +2971,7 @@ function setZaloga(key,newVal){
 // +1 / -1 hitri gumbi
 function adjustZaloga(key,delta){
   const cur=data.zaloge[key]||0;
-  const nw=Math.max(0,cur+delta);
+  const nw=cur+delta;
   setZaloga(key,nw);
 }
 
@@ -2976,7 +2980,7 @@ function openPrejetoDLekarne(){
   document.getElementById('lekarnaPrejetoForm').innerHTML=keys.map(k=>{
     const[z,o]=k.split('||');
     return`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-      <span style="font-size:.88rem">${z}${o?' '+o+'mg':''} <span style="color:var(--text2)">(zaloga: ${data.zaloge[k]||0})</span></span>
+      <span style="font-size:.88rem">${esc(z)}${o?' '+esc(o)+'mg':''} <span style="color:var(--text2)">(zaloga: ${data.zaloge[k]||0})</span></span>
       <input type="number" min="0" value="0" style="width:80px;text-align:center" id="prev_${k.replace(/\W/g,'_')}">
     </div>`;
   }).join('');
@@ -3016,7 +3020,7 @@ function printLekarna(){
     periodLabel='do konca '+ms;
   }else{
     periodDays=parseInt(lekarnaPeriod);
-    endDate=fmtISO(addDays(todayDt,periodDays));
+    endDate=fmtISO(addDays(todayDt,periodDays-1));
     periodLabel=`za ${periodDays} dni naprej (${fmtDate(today)} → ${fmtDate(endDate)})`;
   }
   // Caka termini v obdobju + zamude + povprečje porabe
@@ -3034,7 +3038,7 @@ function printLekarna(){
   });
   const keys=getAllZalogeKeys().sort();
   const zamSk=Object.values(zamude).reduce((a,b)=>a+b,0);
-  let html=`<div style="font-family:Georgia,serif"><h2>${ord}</h2>
+  let html=`<div style="font-family:Georgia,serif"><h2>${esc(ord)}</h2>
     <h3>NAROČILO ZA LEKARNO — ${periodLabel}</h3>
     <p style="color:#666;margin-bottom:16px">Natisnjeno: ${fmtDate(new Date())}</p>
     ${zamSk>0?`<p style="background:#fde7e7;border-left:4px solid #b83232;padding:8px 12px;margin-bottom:14px">⚠ <strong>${zamSk} zamujenih terminov</strong> (pacienti, ki še niso prišli) — niso všteti v naročilo.</p>`:''}
@@ -3052,8 +3056,8 @@ function printLekarna(){
     const c=cakaObd[k]||0,zal=data.zaloge[k]||0,nar=Math.max(0,c-zal);
     const pov=Math.round((opr90[k]||0)/3*10)/10;
     html+=`<tr style="border-bottom:1px solid #ddd">
-      <td style="padding:8px">${z}</td>
-      <td style="padding:8px">${o||'—'}mg</td>
+      <td style="padding:8px">${esc(z)}</td>
+      <td style="padding:8px">${esc(o||'—')}mg</td>
       <td style="padding:8px;text-align:center">${c}</td>
       <td style="padding:8px;text-align:center">${zal}</td>
       <td style="padding:8px;text-align:center">${pov}</td>
@@ -3111,7 +3115,7 @@ function renderStatistika(){
   const maxM=Math.max(...sortedMed.map(([,v])=>v.count),1);
   document.getElementById('statByMed').innerHTML=sortedMed.length?sortedMed.map(([k,v])=>{
     const povMes=Math.round(v.count/12*10)/10;
-    return`<div class="bar-row"><div class="bar-label"><span>${v.label} <span style="color:var(--text2);font-size:.78rem">(${v.pacAkt} pac · ${povMes}/mes)</span></span><strong>${v.count}</strong></div>
+    return`<div class="bar-row"><div class="bar-label"><span>${esc(v.label)} <span style="color:var(--text2);font-size:.78rem">(${v.pacAkt} pac · ${povMes}/mes)</span></span><strong>${v.count}</strong></div>
     <div class="bar-track"><div class="bar-fill" style="width:${Math.round(v.count/maxM*100)}%"></div></div></div>`;
   }).join(''):'<p style="color:var(--text2);font-size:.86rem;padding:8px">Ni podatkov za zadnjih 12 mesecev.</p>';
 
@@ -3175,7 +3179,7 @@ function openZgodovina(pacientId){
   document.getElementById('zgodovinaContent').innerHTML=
     `<p style="font-size:.82rem;color:var(--text2);margin-bottom:12px">Injekcij: <strong>${inj.length}</strong> | Kontrol: <strong>${kon.length}</strong></p>`
     +all.map(t=>`<div class="history-item${t.tip==='kontrola'?' kontrola':''}">
-      ${t.tip==='kontrola'?'🩺':'💉'} <strong>${fmtDate(t.datum)}</strong>${t.ura?' ob '+t.ura:''} — ${t.tip==='kontrola'?'Kontrola':t.zdravilo+' '+t.odmerek+'mg'}${t.opomba?` <span style="color:var(--text2)">(${esc(t.opomba)})</span>`:''}</div>`).join('')
+      ${t.tip==='kontrola'?'🩺':'💉'} <strong>${fmtDate(t.datum)}</strong>${t.ura?' ob '+esc(t.ura):''} — ${t.tip==='kontrola'?'Kontrola':esc((t.zdravilo||'')+' '+(t.odmerek||'')+'mg')}${t.opomba?` <span style="color:var(--text2)">(${esc(t.opomba)})</span>`:''}</div>`).join('')
     ||(all.length===0?'<p style="color:var(--text2);font-style:italic">Ni zgodovine.</p>':'');
   openModal('modalZgodovina');
 }
@@ -3184,27 +3188,24 @@ function openZgodovina(pacientId){
 // NASTAVITVE
 // ============================================================
 function renderNastavitve(){
-  const s=data.settings;
-  const vl=document.getElementById('appVersionLabel');
-  if(vl)vl.textContent=APP_VERSION;
-  document.getElementById('setOrd').value=s.ordinacija||'';
-  document.getElementById('setMaxPac').value=s.maxPacientov||5;
-  document.getElementById('setStart').value=s.start||'09:00';
-  document.getElementById('setEnd').value=s.end||'11:00';
+  const s=data.settings;const vl=document.getElementById('appVersionLabel');if(vl)vl.textContent=APP_VERSION;
+  document.getElementById('setOrd').value=s.ordinacija||'';document.getElementById('setMaxPac').value=s.maxPacientov||5;
+  document.getElementById('setStart').value=s.start||'09:00';document.getElementById('setEnd').value=s.end||'11:00';
+  document.getElementById('setSlotDuration').value=s.slotDuration||30;document.getElementById('setBreakStart').value=s.breakStart||'';document.getElementById('setBreakEnd').value=s.breakEnd||'';
+  const wd=Array.isArray(s.workDays)&&s.workDays.length?s.workDays:[1,2,3,4,5];document.querySelectorAll('#setWorkDays input').forEach(x=>x.checked=wd.includes(Number(x.value)));
   document.getElementById('setSheetsUrl').value=s.sheetsUrl||'';
-  const cs=document.getElementById('cloudSyncStatus');
-  if(cs){
-    if(s.sheetsUrl){
-      const last=s.lastCloudSync?new Date(s.lastCloudSync).toLocaleString('sl-SI'):'še nikoli';
-      cs.innerHTML=`<strong>Status:</strong> <span style="color:var(--accent)">✅ Povezan</span><br><strong>Zadnja sinhronizacija:</strong> ${last}`;
-    }else{
-      cs.innerHTML='<span style="color:var(--text2)">Sinhronizacija ni nastavljena</span>';
-    }
-  }
-  document.getElementById('headerOrd').textContent=s.ordinacija||'Ordinacija';
-  renderZdravilaList();
-  renderBackupStatus();
-  if(s.sheetsUrl)setSyncStatus('ok','Povezan');
+  const cs=document.getElementById('cloudSyncStatus');if(cs){if(s.sheetsUrl){const last=s.lastCloudSync?new Date(s.lastCloudSync).toLocaleString('sl-SI'):'še nikoli';cs.innerHTML=`<strong>Status:</strong> <span style="color:var(--accent)">✅ Povezan</span><br><strong>Zadnja sinhronizacija:</strong> ${last}`;}else cs.innerHTML='<span style="color:var(--text2)">Sinhronizacija ni nastavljena</span>';}
+  document.getElementById('headerOrd').textContent=s.ordinacija||'Ordinacija';renderSchedulePreview();renderZdravilaList();renderBackupStatus();if(s.sheetsUrl)setSyncStatus('ok','Povezan');
+}
+function renderSchedulePreview(){
+  const el=document.getElementById('schedulePreview');if(!el)return;
+  const cfg=getScheduleConfig(true),start=timeToMin(cfg.start),end=timeToMin(cfg.end),bs=timeToMin(cfg.breakStart),be=timeToMin(cfg.breakEnd);
+  if(!cfg.workDays.length){el.innerHTML='<span style="color:var(--danger)">Izberi vsaj en dan ordinacije.</span>';return;}
+  if(!Number.isInteger(cfg.maxPacientov)||cfg.maxPacientov<1||cfg.maxPacientov>30){el.innerHTML='<span style="color:var(--danger)">Max pacientov mora biti 1–30.</span>';return;}
+  if(start===null||end===null||end<=start){el.innerHTML='<span style="color:var(--danger)">Konec ordinacije mora biti po začetku.</span>';return;}
+  if((cfg.breakStart&&!cfg.breakEnd)||(!cfg.breakStart&&cfg.breakEnd)||(bs!==null&&be!==null&&be<=bs)){el.innerHTML='<span style="color:var(--danger)">Malica mora imeti veljaven začetek in konec.</span>';return;}
+  const slots=buildDailySlots(cfg);if(!slots.length){el.innerHTML='<span style="color:var(--danger)">S temi nastavitvami ni nobenega termina.</span>';return;}
+  el.innerHTML=`<strong>Predogled (${slots.length} terminov):</strong> ${slots.map(minToTime).join(' · ')}${slots.length<(cfg.maxPacientov||0)?`<br><span style="color:var(--warn)">V časovnem oknu je prostora le za ${slots.length}, ne za ${cfg.maxPacientov} pacientov.</span>`:''}`;
 }
 function renderZdravilaList(){
   const list=document.getElementById('zdravilaList');
@@ -3216,8 +3217,8 @@ function renderZdravilaList(){
   ${sorted.map(({z,i})=>{
     const pc=data.pacienti.filter(p=>p.zdravilo===z.ime&&p.odmerek===z.odmerek&&!p.izbrisan).length;
     return`<tr>
-      <td><strong>${z.ime}</strong></td>
-      <td>${z.odmerek} ${z.enota||'mg'}</td>
+      <td><strong>${esc(z.ime||'')}</strong></td>
+      <td>${esc(z.odmerek||'')} ${esc(z.enota||'mg')}</td>
       <td>${z.intervalDni} dni</td>
       <td>${pc}</td>
       <td style="text-align:right"><button class="btn btn-secondary btn-sm" onclick="openZdraviloModal(${i})">✏️</button></td>
@@ -3294,12 +3295,15 @@ function deleteZdravilo(){
   showToast('Zdravilo izbrisano','error');
 }
 function saveSettings(){
-  data.settings.ordinacija=document.getElementById('setOrd').value.trim();
-  data.settings.maxPacientov=parseInt(document.getElementById('setMaxPac').value)||5;
-  data.settings.start=document.getElementById('setStart').value;
-  data.settings.end=document.getElementById('setEnd').value;
-  document.getElementById('headerOrd').textContent=data.settings.ordinacija||'Ordinacija';
-  save();showToast('Nastavitve shranjene ✓','success');
+  const cfg=getScheduleConfig(true),start=timeToMin(cfg.start),end=timeToMin(cfg.end),bs=timeToMin(cfg.breakStart),be=timeToMin(cfg.breakEnd);
+  if(!cfg.workDays.length){showToast('Izberi vsaj en dan ordinacije.','error');return;}
+  if(!Number.isInteger(cfg.maxPacientov)||cfg.maxPacientov<1||cfg.maxPacientov>30){showToast('Max pacientov mora biti 1–30.','error');return;}
+  if(start===null||end===null||end<=start){showToast('Konec ordinacije mora biti po začetku.','error');return;}
+  if(cfg.slotDuration<5||cfg.slotDuration>180){showToast('Trajanje termina mora biti 5–180 minut.','error');return;}
+  if((cfg.breakStart&&!cfg.breakEnd)||(!cfg.breakStart&&cfg.breakEnd)||(bs!==null&&be!==null&&be<=bs)){showToast('Preveri čas malice.','error');return;}
+  if(!buildDailySlots(cfg).length){showToast('S temi nastavitvami ni nobenega termina.','error');return;}
+  Object.assign(data.settings,{ordinacija:document.getElementById('setOrd').value.trim(),maxPacientov:cfg.maxPacientov,start:cfg.start,end:cfg.end,slotDuration:cfg.slotDuration,breakStart:cfg.breakStart,breakEnd:cfg.breakEnd,workDays:cfg.workDays});
+  document.getElementById('headerOrd').textContent=data.settings.ordinacija||'Ordinacija';save();showToast('Nastavitve urnika shranjene ✓','success');renderSchedulePreview();
 }
 function resetAll(){
   if(!confirm('POZOR! Izbrisati VSE podatke?'))return;
@@ -3315,74 +3319,11 @@ function closeModal(id){document.getElementById(id).classList.remove('open');}
 document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
 let toastTO;
 function showToast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className='show '+type;clearTimeout(toastTO);const dur=Math.min(8000,Math.max(3200,3200+(msg.length-40)*40));toastTO=setTimeout(()=>t.className='',dur);}
-function exportData(){const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='depo_backup_'+todayISO()+'.json';a.click();URL.revokeObjectURL(u);showToast('Backup izvožen ✓','success');}
+function exportData(prefix='depo_backup'){const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=prefix+'_'+todayISO()+'.json';a.click();URL.revokeObjectURL(u);showToast('Backup izvožen ✓','success');}
 function importData(e){
-  const f=e.target.files[0];if(!f)return;
-  const r=new FileReader();
-  r.onload=ev=>{try{
-    const imp=JSON.parse(ev.target.result);
-    if(!imp.pacienti)throw new Error('Napačen format');
-    if(!confirm(`Uvoziti ${imp.pacienti.length} pacientov?\n\nObstoječi podatki bodo zamenjani.`))return;
-    data=imp;
-    if(!data.settings)data.settings={ordinacija:'',maxPacientov:5,start:'09:00',end:'11:00',sheetsUrl:'',autoBackupEnabled:false,autoBackupMode:'',lastAutoBackup:'',backupHour:12};
-    if(!data.zdravila)data.zdravila=[];
-    if(!data.zaloge)data.zaloge={};if(!data.zalogeLog)data.zalogeLog=[];
-    // Migracija starega formata zdravil (string array → object array)
-    if(data.zdravila.length>0&&typeof data.zdravila[0]==='string'){
-      const seen=new Set(),nl=[];
-      data.zdravila.forEach(s=>{const{ime,odmerek}=parseMed(s,'');const k=ime+'||'+odmerek;if(!seen.has(k)&&ime){seen.add(k);nl.push({ime,odmerek,enota:'mg',intervalDni:90});}});
-      data.zdravila=nl;
-    }
-    data.zdravila.forEach(z=>{if(!z.enota)z.enota='mg';if(!z.intervalDni)z.intervalDni=90;z.ime=titleCase(z.ime||'');z.odmerek=String(z.odmerek||'').replace(',','.');});
-    // Migracija pacientov: zdravilo iz imena, normaliziram, dodaj manjkajoče v seznam
-    data.pacienti.forEach(p=>{
-      if(p.izbrisan===undefined)p.izbrisan=false;
-      if(p.telefon===undefined)p.telefon='';
-      if(!Array.isArray(p.psa))p.psa=[];
-      if(p.psaIntervalMeseci===undefined)p.psaIntervalMeseci=6;
-      if(typeof p.id!=='number')p.id=Number(p.id)||data.nextId++;
-      const parsed=parseMed(p.zdravilo,p.odmerek);
-      p.zdravilo=parsed.ime;
-      if(parsed.odmerek)p.odmerek=parsed.odmerek;
-      else if(p.odmerek)p.odmerek=String(p.odmerek).replace(',','.');
-      if(p.zdravilo&&p.odmerek&&!data.zdravila.some(z=>z.ime===p.zdravilo&&z.odmerek===p.odmerek)){
-        data.zdravila.push({ime:p.zdravilo,odmerek:p.odmerek,enota:'mg',intervalDni:p.interval||90});
-      }
-    });
-    // Migracija terminov
-    data.termini.forEach(t=>{const parsed=parseMed(t.zdravilo,t.odmerek);t.zdravilo=parsed.ime;if(parsed.odmerek)t.odmerek=parsed.odmerek;else if(t.odmerek)t.odmerek=String(t.odmerek).replace(',','.');});
-    // Migracija zalog: zlij dvojnike
-    const oz=data.zaloge,nz={};
-    for(const k in oz){const v=oz[k];if(typeof v!=='number'||v<0)continue;const pts=k.split('||');const ps=parseMed(pts[0],pts[1]||'');if(ps.ime&&ps.odmerek){const nk=ps.ime+'||'+ps.odmerek;nz[nk]=(nz[nk]||0)+Math.round(v);}}
-    data.zaloge=nz;
-    data.zdravila.forEach(z=>{const k=z.ime+'||'+z.odmerek;if(data.zaloge[k]===undefined)data.zaloge[k]=0;});
-    save();renderDashboard();showToast('Backup uvožen ✓','success');
-  }catch(err){showToast('Napaka: '+err.message,'error');}};
+  const f=e.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=ev=>{try{const imp=validateBackupData(JSON.parse(ev.target.result));if(!confirm(`Uvoziti ${imp.pacienti.length} pacientov?\n\nTrenutni podatki bodo najprej izvoženi in nato zamenjani.`))return;exportData('depo_pred_uvozom');data=imp;migrateLoadedData();save();renderDashboard();showToast('Backup uvožen in preverjen ✓','success');}catch(err){showToast('Napaka: '+err.message,'error');}};
   r.readAsText(f);e.target.value='';
-}
-
-// ============================================================
-// DEMO DATA
-// ============================================================
-function loadDemo(){
-  if(data.pacienti.length>0)return;
-  const d=new Date();
-  const demos=[
-    {ime:'Marija',priimek:'Novak',maticni:'1234567',zdravilo:'Risperdal Consta',odmerek:'37.5',interval:14,zadnjaInjekcija:fmtISO(addDays(d,-14)),zadnjaKontrola:fmtISO(addDays(d,-30))},
-    {ime:'Janez',priimek:'Horvat',maticni:'7654321',zdravilo:'Abilify Maintena',odmerek:'400',interval:28,zadnjaInjekcija:fmtISO(addDays(d,-28)),zadnjaKontrola:fmtISO(addDays(d,-200))},
-    {ime:'Ana',priimek:'Kovač',maticni:'2345678',zdravilo:'Xeplion',odmerek:'75',interval:28,zadnjaInjekcija:fmtISO(addDays(d,-10)),zadnjaKontrola:''},
-    {ime:'Peter',priimek:'Krajnc',maticni:'8765432',zdravilo:'Risperdal Consta',odmerek:'50',interval:28,zadnjaInjekcija:fmtISO(addDays(d,-80)),zadnjaKontrola:fmtISO(addDays(d,-195))},
-    {ime:'Nina',priimek:'Zupan',maticni:'3456789',zdravilo:'Abilify Maintena',odmerek:'300',interval:14,zadnjaInjekcija:fmtISO(addDays(d,-5)),zadnjaKontrola:''},
-  ];
-  demos.forEach(p=>{
-    p.id=data.nextId++;p.status='aktiven';p.opombe='';p.izbrisan=false;p.psa=[];p.psaIntervalMeseci=6;
-    data.pacienti.push(p);
-    const zk=zalogeKey(p.zdravilo,p.odmerek);
-    if(data.zaloge[zk]===undefined)data.zaloge[zk]=Math.floor(Math.random()*8)+2;
-    const s=calcNext(p.zadnjaInjekcija,p.interval);
-    if(s)data.termini.push({id:newId('t'),pacientId:p.id,zdravilo:p.zdravilo,odmerek:p.odmerek,datum:s.datum,ura:s.ura,status:'caka',tip:'injekcija',opomba:''});
-  });
-  save();
 }
 
 // ============================================================
@@ -3463,8 +3404,8 @@ function renderUrejanje(){
     document.getElementById('dvojniTable').innerHTML=dvojni.map(d=>{
       const p=getP(d.pacientId);
       return`<tr>
-        <td><strong>${p?p.priimek+' '+p.ime:'?'}</strong></td>
-        <td>${p?p.zdravilo+' '+p.odmerek+'mg':'—'}</td>
+        <td><strong>${p?esc(p.priimek+' '+p.ime):'?'}</strong></td>
+        <td>${p?esc((p.zdravilo||'')+' '+(p.odmerek||'')+'mg'):'—'}</td>
         <td>${d.termini.map(t=>{const zam=t.datum<ts;return`<span style="${zam?'color:var(--danger)':''}">${fmtDate(t.datum)}${zam?' ⚠':''}</span>`;}).join(' + ')}</td>
         <td><button class="btn btn-primary btn-sm" onclick="pocistiDvojne('${d.pacientId}')">🧹 Počisti</button></td>
       </tr>`;
@@ -3480,7 +3421,7 @@ function renderUrejanje(){
         const overdue=naslednja&&naslednja<ts;
         return`<tr>
           <td><strong>${esc(p.priimek)} ${esc(p.ime)}</strong></td>
-          <td>${p.zdravilo} ${p.odmerek}mg</td>
+          <td>${esc((p.zdravilo||'')+' '+(p.odmerek||'')+'mg')}</td>
           <td>${p.zadnjaInjekcija?fmtDate(p.zadnjaInjekcija):'—'}</td>
           <td style="${overdue?'color:var(--danger);font-weight:700':''}">${naslednja?fmtDate(naslednja):'—'}${overdue?' ⚠':''}</td>
           <td style="white-space:nowrap">
@@ -3500,9 +3441,9 @@ function renderUrejanje(){
         return`<tr>
           <td style="color:${sevColor};font-weight:700">${dni} dni</td>
           <td>${fmtDate(t.datum)}</td>
-          <td><strong>${p?p.priimek+' '+p.ime:'?'}</strong></td>
-          <td>${p&&p.telefon?`<a href="tel:${p.telefon.replace(/\s/g,'')}" style="color:var(--info)">${p.telefon}</a> ${smsBtn(p,t)}`:'<span style="color:var(--text2)">—</span>'}</td>
-          <td>${t.zdravilo} ${t.odmerek}mg</td>
+          <td><strong>${p?esc(p.priimek+' '+p.ime):'?'}</strong></td>
+          <td>${p&&p.telefon?`<a href="tel:${String(p.telefon||'').replace(/[^\d+]/g,'')}" style="color:var(--info)">${esc(p.telefon)}</a> ${smsBtn(p,t)}`:'<span style="color:var(--text2)">—</span>'}</td>
+          <td>${esc((t.zdravilo||'')+' '+(t.odmerek||'')+'mg')}</td>
           <td style="white-space:nowrap">
             <button class="btn btn-success btn-sm" onclick="openPotrdi('${t.id}')" title="Pacient je prišel — vnesi pravi datum">✅ Potrdi</button>
             <button class="btn btn-primary btn-sm" onclick="openPrestavi('${t.id}')" title="Nov datum">📅</button>
@@ -3564,47 +3505,26 @@ let prestaviId=null;
 function openPrestavi(terminId){
   const t=data.termini.find(x=>x.id===terminId);
   if(!t||t.status!=='caka'){showToast('Termin ni mogoče prestaviti!','error');return;}
-  prestaviId=terminId;
-  const p=getP(t.pacientId);
-  document.getElementById('prestaviInfo').innerHTML=`<strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong> — ${t.zdravilo} ${t.odmerek}mg<br><span style="color:var(--text2)">Trenutno: ${fmtDate(t.datum)} ${t.ura||''}</span>`;
-  // Predlagam naslednji prost slot od jutri
-  const slot=getNextSlot(fmtISO(addDays(new Date(),1)));
-  document.getElementById('prestaviDatum').value=slot?slot.datum:todayISO();
-  document.getElementById('prestaviUra').value=slot?slot.ura:'09:00';
-  document.getElementById('prestaviOpomba').value='';
-  updatePrestaviSlotInfo();
-  openModal('modalPrestavi');
+  prestaviId=terminId;const p=getP(t.pacientId);const tip=t.tip==='kontrola'?'Kontrola':`${esc(t.zdravilo||'')} ${esc(t.odmerek||'')}mg`;
+  document.getElementById('prestaviInfo').innerHTML=`<strong>${p?esc(p.ime+' '+p.priimek):'?'}</strong> — ${tip}<br><span style="color:var(--text2)">Trenutno: ${fmtDate(t.datum)} ${esc(t.ura||'')}</span>`;
+  const slot=getNextSlot(fmtISO(addDays(new Date(),1)),{maxDays:365,excludeTerminId:t.id});
+  document.getElementById('prestaviDatum').value=slot?slot.datum:t.datum;
+  document.getElementById('prestaviUra').value=slot?slot.ura:(t.ura||'');
+  document.getElementById('prestaviOpomba').value='';updatePrestaviSlotInfo();openModal('modalPrestavi');
 }
 function updatePrestaviSlotInfo(){
-  const d=document.getElementById('prestaviDatum').value;
-  if(!d)return;
-  const dt=new Date(d);
-  const el=document.getElementById('prestaviSlotInfo');
-  if(!isDelovniDan(dt)){
-    el.innerHTML='<span style="color:var(--warn)">⚠ Izbrani dan je vikend ali praznik!</span>';
-    return;
-  }
-  const cnt=data.termini.filter(t=>t.datum===d&&t.status!=='preklican'&&t.tip!=='kontrola'&&t.id!==prestaviId).length;
-  const max=data.settings.maxPacientov||5;
-  el.innerHTML=cnt>=max
-    ?`<span style="color:var(--warn)">⚠ Ta dan je poln (${cnt}/${max})</span>`
-    :`<span style="color:var(--accent)">✓ Prosto (${cnt}/${max} zasedeno)</span>`;
+  const d=document.getElementById('prestaviDatum').value,u=document.getElementById('prestaviUra').value,el=document.getElementById('prestaviSlotInfo');
+  if(!d){el.textContent='';return;}
+  const v=validateAppointmentSlot(d,u,prestaviId);
+  el.innerHTML=v.ok?`<span style="color:var(--accent)">✓ ${v.msg}</span>`:`<span style="color:var(--danger)">⚠ ${v.msg}</span>`;
 }
 function confirmPrestavi(){
-  const d=document.getElementById('prestaviDatum').value;
-  const u=document.getElementById('prestaviUra').value;
-  const op=document.getElementById('prestaviOpomba').value.trim();
-  if(!d){showToast('Vnesite datum!','error');return;}
-  const t=data.termini.find(x=>x.id===prestaviId);
-  if(!t)return;
-  const oldD=t.datum;
-  t.datum=d;t.ura=u||t.ura;
-  if(op)t.opomba=(t.opomba?t.opomba+' · ':'')+op;
-  save();closeModal('modalPrestavi');
-  showToast(`Prestavljen: ${fmtDate(oldD)} → ${fmtDate(d)} ✓`,'success');
-  renderDashboard();updateUrejanjeBadge();
-  if(document.getElementById('page-urejanje').classList.contains('active'))renderUrejanje();
-  if(document.getElementById('page-termini').classList.contains('active'))renderTermini();
+  const d=document.getElementById('prestaviDatum').value,u=document.getElementById('prestaviUra').value,op=document.getElementById('prestaviOpomba').value.trim();
+  const t=data.termini.find(x=>x.id===prestaviId);if(!t)return;
+  const valid=validateAppointmentSlot(d,u,t.id);if(!valid.ok){showToast(valid.msg,'error');updatePrestaviSlotInfo();return;}
+  const oldD=t.datum,oldU=t.ura;t.datum=d;t.ura=u;if(op)t.opomba=(t.opomba?t.opomba+' · ':'')+op;
+  save();closeModal('modalPrestavi');showToast(`Prestavljen: ${fmtDate(oldD)} ${oldU||''} → ${fmtDate(d)} ${u} ✓`,'success');
+  renderDashboard();updateUrejanjeBadge();if(document.getElementById('page-urejanje').classList.contains('active'))renderUrejanje();if(document.getElementById('page-termini').classList.contains('active'))renderTermini();
 }
 
 // ============================================================
@@ -3612,11 +3532,11 @@ function confirmPrestavi(){
 // ============================================================
 function smsText(p,t){
   const ord=data.settings.ordinacija||'ordinacija';
-  return`Spoštovani, obveščamo vas o terminu za injekcijo: ${fmtDate(t.datum)}${t.ura?' ob '+t.ura:''}. Lep pozdrav, ${ord}`;
+  return`Spoštovani, obveščamo vas o terminu za injekcijo: ${fmtDate(t.datum)}${t.ura?' ob '+esc(t.ura):''}. Lep pozdrav, ${ord}`;
 }
 function smsBtn(p,t){
   if(!p||!p.telefon)return'';
-  const tel=p.telefon.replace(/\s/g,'');
+  const tel=String(p.telefon||'').replace(/[^\d+]/g,'');
   const body=encodeURIComponent(smsText(p,t));
   return`<a class="btn btn-secondary btn-sm" style="padding:2px 8px" href="sms:${tel}?body=${body}" title="Pošlji SMS opomnik">📱</a>`;
 }
@@ -3643,8 +3563,8 @@ function qsFilter(q){
     const nextT=data.termini.filter(t=>t.pacientId===p.id&&t.status==='caka'&&t.tip!=='kontrola').sort((a,b)=>a.datum.localeCompare(b.datum))[0];
     const zamuda=nextT&&nextT.datum<ts;
     return`<div class="qs-item" onclick="qsOpen('${p.id}')" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:8px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-      <div><strong>${esc(p.priimek)} ${esc(p.ime)}</strong> <span style="font-family:monospace;color:var(--text2);font-size:.8rem">${p.maticni||''}</span><br>
-        <span style="font-size:.78rem;color:var(--text2)">${p.zdravilo} ${p.odmerek}mg · int. ${p.interval}d${p.status!=='aktiven'?' · 💤 neaktiven':''}</span></div>
+      <div><strong>${esc(p.priimek)} ${esc(p.ime)}</strong> <span style="font-family:monospace;color:var(--text2);font-size:.8rem">${esc(p.maticni||'')}</span><br>
+        <span style="font-size:.78rem;color:var(--text2)">${esc(p.zdravilo||'')} ${esc(p.odmerek||'')}mg · int. ${Number(p.interval)||0}d${p.status!=='aktiven'?' · 💤 neaktiven':''}</span></div>
       <div style="text-align:right;font-size:.8rem;${zamuda?'color:var(--danger);font-weight:700':'color:var(--text2)'}">${nextT?fmtDate(nextT.datum)+(zamuda?' ⚠':''):'brez termina'}</div>
     </div>`;
   }).join(''):'<div style="padding:16px;text-align:center;color:var(--text2)">Ni zadetkov</div>';
@@ -3657,8 +3577,8 @@ function qsOpen(id){
 // Tipkovne bližnjice
 document.addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();openQuickSearch();}
-  if(e.key==='Escape'){document.querySelectorAll('.modal-overlay.active').forEach(m=>m.classList.remove('active'));}
-  if(e.key==='Enter'&&document.getElementById('modalQuickSearch').classList.contains('active')){
+  if(e.key==='Escape'){document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'));}
+  if(e.key==='Enter'&&document.getElementById('modalQuickSearch').classList.contains('open')){
     const first=document.querySelector('#qsResults .qs-item');
     if(first)first.click();
   }
@@ -3666,7 +3586,7 @@ document.addEventListener('keydown',e=>{
 // ============================================================
 // PWA — verzija, service worker, samodejne posodobitve
 // ============================================================
-const APP_VERSION='v4u';
+const APP_VERSION='v5.0-github';
 (function(){
   // Prikaz verzije v glavi
   const h=document.querySelector('.header-title')||document.querySelector('header');
@@ -3710,8 +3630,8 @@ function applyUpdate(){
   }
 }
 
-document.getElementById('prestaviDatum').addEventListener('change',updatePrestaviSlotInfo);
-loadDemo();
+document.getElementById('prestaviDatum').addEventListener('change',updatePrestaviSlotInfo);document.getElementById('prestaviUra').addEventListener('change',updatePrestaviSlotInfo);
+if(repairLegacyControlTimes())save();
 renderDashboard();
 startAutoSync();
 initAutoBackup();

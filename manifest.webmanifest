@@ -1,13 +1,13 @@
 {
-  "name": "Depo Injekcije — Ordinacija",
+  "name": "Depo Injekcije — PSA ordinacija",
   "short_name": "Depo Injekcije",
-  "description": "Vodenje pacientov, terminov in zalog za depo injekcije",
-  "start_url": "./index.html",
+  "description": "Lokalna ambulantna aplikacija za paciente, termine, PSA spremljanje, zalogo in statistiko.",
+  "lang": "sl",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f4f1ec",
   "theme_color": "#2d5a3d",
-  "lang": "sl",
   "icons": [
     {
       "src": "icons/icon-192.png",
